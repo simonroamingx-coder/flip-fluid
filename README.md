@@ -68,6 +68,7 @@ tools/
   serve.mjs             dependency-free static server
   bundle.mjs            builds index.html from dev.html, src/ and app.css
   verify.mjs            rebuild + run the checks; the command to run before committing
+  release.mjs           cuts a version: bump, verify, commit, tag, push, publish
 test/
   baseline.mjs          current behaviour vs test/baseline.json - the daily regression net
   baseline.json         recorded behaviour; regenerate with --update when a change is intended

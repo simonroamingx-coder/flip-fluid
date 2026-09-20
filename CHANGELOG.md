@@ -13,6 +13,10 @@ A Settings panel for the particle count (with Apply/Restart) and a Debug panel
 for runtime statistics, profiling and debug visualisation. UI and instrumentation
 only: the solver's maths is not meant to change.
 
+- `tools/release.mjs` cuts a version in one command: bump `src/version.js`,
+  rebuild, run the full verification, commit, tag, push, and publish a GitHub
+  release with the generated `index.html` attached under a versioned name
+
 ## v1.0.0 - First versioned release
 
 Tag: `v1.0.0`

@@ -91,6 +91,18 @@ the page tells you what you are looking at.
 To cut a version:
 
 ```
+node tools/release.mjs 1.1.0 --dry-run      # see the plan, change nothing
+node tools/release.mjs 1.1.0                # check, confirm, then do it
+```
+
+That is the whole flow. It refuses to run unless the working tree is clean, the
+branch is `main`, the branch is not behind `origin/main`, and `CHANGELOG.md`
+already has a `## v1.1.0` section - those lines become the release notes, which
+is why the entry has to be written first.
+
+The steps it performs, if you would rather do them by hand:
+
+```
 # 1. bump VERSION in src/version.js
 # 2. add the entry to CHANGELOG.md, and update the version document in docs/
 node tools/verify.mjs --update         # only if behaviour changed on purpose
