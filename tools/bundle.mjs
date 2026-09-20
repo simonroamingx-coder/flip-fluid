@@ -30,7 +30,10 @@ async function load(key)
     if (modules.has(key))
         return modules.get(key);
 
-    const source = await readFile(new URL(key, root), 'utf8');
+    // Normalise line endings: with the right git settings the sources can be
+    // checked out with CRLF on Windows, and the generated file has to come out
+    // byte-identical either way, or every fresh clone looks stale.
+    const source = (await readFile(new URL(key, root), 'utf8')).replace(/\r\n/g, '\n');
     const record = { key, source, code: null, deps: [], exports: [] };
     modules.set(key, record);
 
@@ -90,8 +93,8 @@ function order(record, seen = new Set(), out = [])
 }
 
 const entry = await load('src/main.js');
-const html = await readFile(new URL('dev.html', root), 'utf8');
-const css = await readFile(new URL('src/styles/app.css', root), 'utf8');
+const html = (await readFile(new URL('dev.html', root), 'utf8')).replace(/\r\n/g, '\n');
+const css = (await readFile(new URL('src/styles/app.css', root), 'utf8')).replace(/\r\n/g, '\n');
 
 if (css.includes('</style'))
     throw new Error('app.css contains a literal </style sequence');

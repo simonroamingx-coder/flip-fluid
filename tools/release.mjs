@@ -48,6 +48,13 @@ function heading(label)
     console.log('\n=== ' + label + ' ===');
 }
 
+// Whatever git or gh said, so a failure is diagnosable without re-running.
+function because(result)
+{
+    const text = String(result.stderr || result.stdout || '').trim();
+    return text ? '\n\n' + text : '';
+}
+
 function run(command, commandArgs, options = {})
 {
     const inherit = options.stdio === 'inherit';
@@ -147,6 +154,14 @@ if (branch !== 'main')
     fail(`on branch "${branch}". Releases are cut from main.`);
 note('on branch main');
 
+const email = git('config', 'user.email').stdout.trim();
+if (!email)
+    fail('git has no user.email set, so it cannot create the release commit.'
+        + '\n\nSet it once, in this repository:'
+        + '\n  git config user.name "Your Name"'
+        + '\n  git config user.email "you@example.com"');
+note(`commits will be authored as ${email}`);
+
 // Best effort: if there is no network, fall back to the refs we already have.
 const fetched = git('fetch', '--quiet', 'origin');
 note(fetched.ok ? 'fetched origin' : 'could not reach origin, using the local remote ref');
@@ -245,13 +260,16 @@ if (!verify.ok)
     fail('verification failed. src/version.js has been bumped; fix the problem, or restore it with `git checkout src/version.js`.');
 
 heading('commit');
-if (!git('add', '-A').ok)
-    fail('git add failed');
-if (!git('commit', '-m', subject, '-m', section.body).ok) {
-    const head0 = git('status', '--porcelain').stdout.trim();
-    fail(head0
-        ? 'git commit failed:\n\n' + head0
-        : 'nothing to commit: the version was already bumped and index.html already rebuilt');
+const added = git('add', '-A');
+if (!added.ok)
+    fail('git add failed' + because(added));
+
+const committed = git('commit', '-m', subject, '-m', section.body);
+if (!committed.ok) {
+    const staged = git('status', '--porcelain').stdout.trim();
+    fail('git commit failed' + because(committed)
+        + (staged ? '\n\nworking tree:\n' + staged : '')
+        + '\n\nIf nothing was left to commit, the version was already bumped and index.html already rebuilt.');
 }
 note(subject);
 
@@ -264,16 +282,23 @@ if (existingTag.ok) {
         fail(`${tag} already points at ${tagged.slice(0, 7)}, not at HEAD. Move it by hand if that is really what you want.`);
     note(`${tag} already points at HEAD`);
 } else {
-    if (!git('tag', '-a', tag, '-m', title).ok)
-        fail('git tag failed');
+    const tagged = git('tag', '-a', tag, '-m', title);
+    if (!tagged.ok)
+        fail('git tag failed' + because(tagged));
     note(tag + ' created');
 }
 
 heading('push');
-if (!git('push', 'origin', 'main').ok)
-    fail('push failed. The commit and tag exist locally; push them by hand when the network is back.');
-if (!git('push', 'origin', tag).ok)
-    fail('pushing the tag failed. The commit is on GitHub; push the tag by hand: git push origin ' + tag);
+const pushedMain = git('push', 'origin', 'main');
+if (!pushedMain.ok)
+    fail('push failed' + because(pushedMain)
+        + '\n\nThe commit and tag exist locally. Push them by hand when the network is back:\n'
+        + `  git push origin main && git push origin ${tag}`);
+
+const pushedTag = git('push', 'origin', tag);
+if (!pushedTag.ok)
+    fail('pushing the tag failed' + because(pushedTag)
+        + '\n\nThe commit is on GitHub; the tag is not:\n  git push origin ' + tag);
 note('main and ' + tag + ' are on GitHub');
 
 if (publishRelease) {
