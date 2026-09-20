@@ -19,7 +19,7 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 		<meta name="viewport" content="width=device-width, initial-scale=1.0">
 
 		<title>FLIP Fluid</title>
-		<!-- Built by tools/bundle.mjs from the modules in src/. Do not edit by hand. -->
+		<!-- FLIP Fluid v1.0.0 - built by tools/bundle.mjs from dev.html and src/. Do not edit by hand; see WORKFLOW.md. -->
 		<style>
 /* Copyright 2022 Matthias Müller - Ten Minute Physics (MIT). See ../../LICENSE. */
 
@@ -42,6 +42,19 @@ body {
 /* Was an inline style attribute on the canvas element; same computed border. */
 #myCanvas {
 	border: 2px solid;
+}
+
+/* Version stamp, filled in by src/main.js from src/version.js. Fixed and
+   click-through, so it never shifts the layout or blocks dragging the disc. */
+#version {
+	position: fixed;
+	right: 8px;
+	bottom: 6px;
+	font-size: 12px;
+	color: #9a9a9a;
+	pointer-events: none;
+	-webkit-user-select: none;
+	user-select: none;
 }
 
 		</style>
@@ -82,6 +95,7 @@ body {
 	<input type = "range" min = "0" max = "10" value = "9" class = "slider" id = "flipSlider"> FLIP 
 <br>
 	<canvas id="myCanvas"></canvas>
+	<span id = "version"></span>
 
 	<script>
 var __mods = {}, __cache = {};
@@ -1363,6 +1377,22 @@ function startLoop(scene, renderer)
 	__exports.startLoop = startLoop;
 };
 
+__mods["src/version.js"] = function (__exports, __req) {
+"use strict";
+// The single source of truth for the version.
+//
+// It is displayed in the corner of the running simulation and stamped into the
+// generated index.html, so "which version am I looking at" is answered by the
+// page itself. `node tools/verify.mjs` also checks it against the git tag when
+// HEAD is tagged, so the badge cannot quietly disagree with the tag you would
+// roll back to.
+//
+// Bumping this: see the versioning section of WORKFLOW.md.
+const VERSION = '1.0.0';
+
+	__exports.VERSION = VERSION;
+};
+
 __mods["src/main.js"] = function (__exports, __req) {
 "use strict";
 // Copyright 2022 Matthias Müller - Ten Minute Physics (MIT). See ../../LICENSE.
@@ -1378,6 +1408,7 @@ const { setupCanvas } = __req("src/app/canvas.js");
 const { attachInput } = __req("src/app/Input.js");
 const { attachControls } = __req("src/app/UI.js");
 const { simulateOnce, startLoop } = __req("src/app/loop.js");
+const { VERSION } = __req("src/version.js");
 
 const canvas = document.getElementById('myCanvas');
 const gl = canvas.getContext('webgl');
@@ -1398,6 +1429,12 @@ attachInput({
     stepOnce: () => simulateOnce(scene)
 });
 attachControls(document, scene);
+
+// Shown in the corner of the page, so a screenshot or a running sim says which
+// version it is without anyone having to ask git.
+const versionElement = document.getElementById('version');
+if (versionElement)
+    versionElement.textContent = 'v' + VERSION;
 
 startLoop(scene, renderer);
 

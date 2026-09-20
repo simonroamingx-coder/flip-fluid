@@ -13,6 +13,8 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import { VERSION } from '../src/version.js';
+
 const root = fileURLToPath(new URL('..', import.meta.url));
 const flags = new Set(process.argv.slice(2));
 const full = flags.has('--full');
@@ -41,7 +43,29 @@ if (update)
 
 const baselineOk = run('behaviour baseline', 'test/baseline.mjs');
 
-// 3. Optionally, the provenance checks against the original demo. These only
+// 3. If HEAD carries a version tag, the version in the code must agree with it,
+//    so the badge on the page never lies about what you would roll back to.
+function versionTagMatches()
+{
+    const result = spawnSync('git', ['tag', '--points-at', 'HEAD'], { cwd: root, encoding: 'utf8' });
+    if (result.status !== 0)
+        return { ok: true, detail: `no git here, skipped (code says ${VERSION})` };
+
+    const tags = (result.stdout || '').split('\n').map(line => line.trim()).filter(Boolean);
+    const versions = tags.map(tag => tag.match(/^v(\d+\.\d+\.\d+)$/)).filter(Boolean).map(match => match[1]);
+
+    if (!versions.length)
+        return { ok: true, detail: `HEAD is not a version tag (code says ${VERSION})` };
+
+    return versions.includes(VERSION)
+        ? { ok: true, detail: `v${VERSION} matches the tag` }
+        : { ok: false, detail: `tagged ${versions.join(', ')} but src/version.js says ${VERSION}` };
+}
+
+const versionCheck = versionTagMatches();
+steps.push({ label: 'version vs git tag', ok: versionCheck.ok, detail: versionCheck.detail });
+
+// 4. Optionally, the provenance checks against the original demo. These only
 //    pass while behaviour is unchanged, so they are opt-in once you start
 //    adding features.
 let parityOk = true;
@@ -66,6 +90,7 @@ console.log('  ' + '-'.repeat(70));
 
 line('rebuild index.html', bundled, stale ? 'was stale, regenerated - commit it' : 'already current');
 line('behaviour baseline', baselineOk, '');
+line('version vs git tag', versionCheck.ok, versionCheck.detail);
 if (full) {
     line('parity with the original', parityOk, '');
     line('rendered output in Chrome', browserOk, '');

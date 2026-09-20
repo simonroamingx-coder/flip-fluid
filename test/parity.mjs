@@ -17,6 +17,7 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
 import { TOGGLES } from '../src/app/UI.js';
+import { VERSION } from '../src/version.js';
 import {
     VIEWPORT, SCENARIO, loadReference, loadRefactored, domainForViewport,
     runScenario, snapshot, stepReference, stepRefactored
@@ -95,13 +96,18 @@ check('classic scripts are inert', classicScripts.every(code => !/scene\.|FlipFl
 
 // The root entry point is the generated single file: no external references,
 // modules and stylesheet inlined, so it runs by double-click.
+const bundledModules = (bundleHtml.match(/__mods\["/g) ?? []).length;
+
 check('root index.html is self-contained',
     !/<script[^>]*type\s*=\s*["']module["']/.test(bundleHtml) &&
     !/<script[^>]*\ssrc\s*=/.test(bundleHtml) &&
     !bundleHtml.includes('href="src/') &&
     bundleHtml.includes('__mods[') &&
     bundleHtml.includes('-webkit-appearance'),
-    `${(bundleHtml.length / 1024).toFixed(1)} KB, 14 modules and app.css inlined`);
+    `${(bundleHtml.length / 1024).toFixed(1)} KB, ${bundledModules} modules and app.css inlined`);
+
+check('generated file is version stamped', bundleHtml.includes(`FLIP Fluid v${VERSION}`),
+    `v${VERSION} in the header comment`);
 
 // ------------------------------------------------------------------- report
 

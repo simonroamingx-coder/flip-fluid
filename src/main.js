@@ -11,6 +11,7 @@ import { setupCanvas } from './app/canvas.js';
 import { attachInput } from './app/Input.js';
 import { attachControls } from './app/UI.js';
 import { simulateOnce, startLoop } from './app/loop.js';
+import { VERSION } from './version.js';
 
 const canvas = document.getElementById('myCanvas');
 const gl = canvas.getContext('webgl');
@@ -31,6 +32,12 @@ attachInput({
     stepOnce: () => simulateOnce(scene)
 });
 attachControls(document, scene);
+
+// Shown in the corner of the page, so a screenshot or a running sim says which
+// version it is without anyone having to ask git.
+const versionElement = document.getElementById('version');
+if (versionElement)
+    versionElement.textContent = 'v' + VERSION;
 
 startLoop(scene, renderer);
 

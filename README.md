@@ -60,6 +60,7 @@ src/
     loop.js             one simulation step, and the frame loop
   styles/
     app.css             page and control styles
+  version.js            the version number, shown in the corner of the sim
 tools/
   serve.mjs             dependency-free static server
   bundle.mjs            builds index.html from dev.html, src/ and app.css

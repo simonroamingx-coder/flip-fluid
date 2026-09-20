@@ -82,6 +82,49 @@ git tag -a v1.1 -m "..."              # create
 git push --tags                       # publish
 ```
 
+## Versions
+
+The version is one number in one place: `src/version.js`. It is displayed in the
+corner of the running simulation and stamped into the generated `index.html`, so
+the page tells you what you are looking at.
+
+To cut a version:
+
+```
+# 1. bump VERSION in src/version.js
+node tools/verify.mjs --update         # only if behaviour changed on purpose
+git add -A
+git commit -m "v1.1.0: what changed"
+git tag -a v1.1.0 -m "what this version is"
+git push && git push --tags
+```
+
+The tag name must match `src/version.js`: `node tools/verify.mjs` fails if HEAD
+carries a version tag that disagrees with the code, so the badge cannot lie about
+which version you are running.
+
+Current tags: `v1.0-refactor` is the refactor commit from before versioning
+existed; `v1.0.0` is the first versioned release.
+
+### Going back to a version
+
+```
+git log v1.0.0..HEAD --oneline         # what has happened since
+git diff v1.0.0 -- src/                # what changed, in full
+git restore --source=v1.0.0 src/core/FlipFluid.js   # one file back, staged to review
+git switch -c rescue v1.0.0            # work from that version in a branch
+```
+
+`git restore --source=` is the one to remember: it puts a single file back the way
+it was at that version, without touching anything else, and you can inspect the
+result before committing it.
+
+## Naming versions
+
+Numbers only, so they sort and compare: `v1.1.0` for a feature, `v1.0.1` for a
+fix, `v2.0.0` for something that changes what the simulation does. Keep tag text
+short, and put the detail in the commit message where it belongs.
+
 ## What the two tests mean
 
 They answer different questions, and confusing them will waste your time.

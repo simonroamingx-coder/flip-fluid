@@ -22,6 +22,8 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { inflateSync } from 'node:zlib';
 
+import { VERSION } from '../src/version.js';
+
 const root = fileURLToPath(new URL('..', import.meta.url));
 const artifacts = join(root, 'test', 'artifacts');
 
@@ -67,6 +69,8 @@ function driveScript(entry)
         const draw = ${entry}.draw;
         const place = ${entry}.setObstacle;
         ${DIGEST_JS}
+        const versionElement = document.getElementById('version');
+        const version = versionElement ? versionElement.textContent.trim() : null;
         const step = () => S.fluid.simulate(
             S.dt, S.gravity, S.flipRatio, S.numPressureIters, S.numParticleIters,
             S.overRelaxation, S.compensateDrift, S.separateParticles,
@@ -80,11 +84,17 @@ function driveScript(entry)
         for (let i = 0; i < 15; i++) step();
 
         draw();
+        // The version stamp is a deliberate addition, not part of the original
+        // page. Record it above, then drop it so the DOM and screenshot
+        // comparisons below still describe everything else exactly.
+        if (versionElement) versionElement.remove();
+
         return JSON.stringify({
             initialDigest: initialDigest,
             digest: stateDigest(S),
             frameNr: S.frameNr,
             numParticles: S.fluid.numParticles,
+            version: version,
             canvas: document.getElementById('myCanvas').toDataURL('image/png')
         });
     })()`;
@@ -168,6 +178,7 @@ class Cdp
         this.socket = socket;
         this.nextId = 1;
         this.pending = new Map();
+        this.closed = null;
         this.events = [];
         this.listeners = new Map();
 
@@ -184,6 +195,16 @@ class Cdp
                     fn(message.params);
             }
         });
+
+        // If the browser goes away mid-command, fail the pending calls instead
+        // of waiting out their timeouts. Without this a dead browser looks like
+        // a hung test.
+        socket.addEventListener('close', () => {
+            this.closed = this.closed ?? new Error('the browser closed the connection');
+            for (const { reject } of this.pending.values())
+                reject(this.closed);
+            this.pending.clear();
+        });
     }
 
     on(method, fn)
@@ -193,6 +214,9 @@ class Cdp
 
     send(method, params = {})
     {
+        if (this.closed)
+            return Promise.reject(this.closed);
+
         const id = this.nextId++;
         return withTimeout(
             new Promise((resolve, reject) => {
@@ -488,6 +512,12 @@ try {
         refactored.driven.initialDigest !== refactored.driven.digest &&
         standalone.driven.initialDigest !== standalone.driven.digest,
         `${original.driven.numParticles} particles, ${short(original.driven.initialDigest)} -> ${short(original.driven.digest)}`);
+
+    check('version badge',
+        refactored.driven.version === 'v' + VERSION &&
+        standalone.driven.version === 'v' + VERSION &&
+        original.driven.version === null,
+        `dev.html and index.html show v${VERSION}; the original shows none`);
 
     const probeDiffs = new Map();
 

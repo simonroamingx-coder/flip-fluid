@@ -13,6 +13,8 @@ import { readFile, writeFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { posix } from 'node:path';
 
+import { VERSION } from '../src/version.js';
+
 const root = new URL('..', import.meta.url);
 const rootPath = fileURLToPath(root);
 
@@ -121,11 +123,12 @@ if (output.includes('build:dev-only'))
     throw new Error('a dev-only block was not stripped');
 
 output = output.replace('<title>FLIP Fluid</title>',
-    '<title>FLIP Fluid</title>\n\t\t<!-- Built by tools/bundle.mjs from the modules in src/. Do not edit by hand. -->');
+    `<title>FLIP Fluid</title>\n\t\t<!-- FLIP Fluid v${VERSION} - built by tools/bundle.mjs`
+    + ' from dev.html and src/. Do not edit by hand; see WORKFLOW.md. -->');
 
 await writeFile(new URL('index.html', root), output);
 
 const list = order(entry).map(record => record.key);
-console.log(`bundled ${list.length} modules from dev.html into index.html`);
+console.log(`bundled ${list.length} modules from dev.html into index.html (v${VERSION})`);
 console.log(`  ${list.join('\n  ')}`);
 console.log(`  ${(output.length / 1024).toFixed(1)} KB, opens directly from disk`);
