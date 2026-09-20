@@ -1,0 +1,136 @@
+# Working on this project
+
+You have a git repository in this folder and a private copy on GitHub. Here is
+how to use them without losing work.
+
+## The loop
+
+```
+node tools/verify.mjs     # before every commit: rebuilds index.html, checks behaviour (~3 s)
+git status
+git add -A
+git commit -m "what changed and why"
+git push
+```
+
+`git push` needs no arguments: `main` already tracks `origin/main`.
+
+Before anything large, `node tools/verify.mjs --full` also runs the two
+original-parity harnesses (~1.5 min).
+
+## Rolling back
+
+Three tiers, depending on how far the change got.
+
+**Not committed yet.** `git status` to see what moved, then throw it away:
+
+```
+git restore src/core/FlipFluid.js     # one file
+git restore .                         # everything uncommitted
+```
+
+**Committed.** Look before you leap:
+
+```
+git log --oneline                     # find the commit
+git show <sha> --stat                 # what did it touch
+git diff <sha> -- src/                # what changed since
+```
+
+Then pick one:
+
+```
+git revert <sha>                      # makes a NEW commit that undoes it
+git reset --hard <sha>                # rewinds history; drops everything after it
+```
+
+`revert` is the right choice almost always, because it keeps history honest and
+works on commits that are already on GitHub. `reset --hard` rewrites history, so
+if you have already pushed, you need `git push --force-with-lease` afterwards and
+any other copy of the repo disagrees with you. Use it only for commits that have
+never left this machine.
+
+**Something went badly wrong** (a reset removed work you wanted):
+
+```
+git reflog                            # every position HEAD has been at
+git reset --hard <sha>                # or: git switch -c rescue <sha>
+```
+
+Reflog is the net under the trapeze. Commits are not gone until they are
+garbage-collected, which takes weeks.
+
+## Branches, for anything non-trivial
+
+Rolling back is easier if the work was never on `main`:
+
+```
+git switch -c slider-ui               # new branch
+# ... work, commit ...
+git switch main
+git merge slider-ui                   # keep it
+git branch -D slider-ui               # or throw the whole thing away
+```
+
+## Tags, for known-good points
+
+`v1.0-refactor` marks the refactor, verified byte-identical to the original demo.
+To mark another point you are happy to come back to:
+
+```
+git tag -a v1.1 -m "..."              # create
+git push --tags                       # publish
+```
+
+## What the two tests mean
+
+They answer different questions, and confusing them will waste your time.
+
+**`test/baseline.mjs`** compares the simulation against `test/baseline.json`,
+recorded behaviour that you own. This is the day-to-day regression net: it fails
+when behaviour moves and you did not say so. That is what you want while adding
+features.
+
+**`test/parity.mjs`** and **`test/parity-browser.mjs`** compare against the
+original single-file demo in `ref/`. They are the proof that the refactor changed
+nothing, so they can only pass while behaviour is unchanged — the moment you
+deliberately change the physics, they will fail, and that is not breakage. Run
+them with `--full` when you want that reassurance, or when you are preparing to
+say "this still behaves as originally specified".
+
+When you change behaviour on purpose:
+
+```
+node test/baseline.mjs --update       # or: node tools/verify.mjs --update
+git diff test/baseline.json           # ← read this. It is the change, in one place.
+git add test/baseline.json
+```
+
+Reading that diff is the habit worth having: it turns "I think I only touched
+the slider" into evidence.
+
+## The generated file rule
+
+`index.html` is generated from `dev.html` and `src/`, and it is committed so that
+double-clicking it works straight from a clone. Never edit it by hand — you would
+be editing a file the next build overwrites.
+
+`node tools/verify.mjs` rebuilds it for you and tells you if it had gone stale,
+which is the failure mode you will otherwise hit: edit `src/`, forget to bundle,
+and the file everyone actually opens quietly disagrees with the source.
+
+## Commits and your name
+
+The commits so far are authored as `Codex <codex@localhost>`. To make future ones
+yours, in this repo:
+
+```
+git config user.name "Your Name"
+git config user.email "you@example.com"
+```
+
+## One machine-specific note
+
+This folder is owned by the account Codex's sandbox runs as, so git refuses to
+work in it as "dubious ownership" until the path is trusted. That exception is
+already set here. A fresh clone anywhere else does not need it.

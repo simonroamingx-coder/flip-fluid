@@ -39,6 +39,7 @@ After editing a module, run `node tools/bundle.mjs` to refresh `index.html`.
 index.html              GENERATED - one self-contained file, runs by double-click
 dev.html                the markup, loading src/ as modules; needs the server
 LICENSE                 MIT notice, verbatim
+WORKFLOW.md             how to commit, branch and roll back; what the tests mean
 start.cmd               starts the server and opens dev.html
 src/
   main.js               bootstrap: context, canvas, scene, input, controls, loop
@@ -62,9 +63,13 @@ src/
 tools/
   serve.mjs             dependency-free static server
   bundle.mjs            builds index.html from dev.html, src/ and app.css
+  verify.mjs            rebuild + run the checks; the command to run before committing
 test/
-  parity.mjs            headless simulation parity
-  parity-browser.mjs    rendered-output parity in Chrome
+  baseline.mjs          current behaviour vs test/baseline.json - the daily regression net
+  baseline.json         recorded behaviour; regenerate with --update when a change is intended
+  parity.mjs            headless simulation parity against the original demo
+  parity-browser.mjs    rendered-output parity in Chrome against the original demo
+  lib/harness.mjs       shared stubs, scenario and state hashing
   probe-module.html     evidence for the file:// module limitation
   probe-webgl.html      diagnostics for headless WebGL
   artifacts/            screenshots produced by the browser harness
@@ -130,13 +135,26 @@ Each of these is behaviour-neutral, and the parity run proves it:
 
 ## Verification
 
-Two independent harnesses. Neither needs any dependency installed.
+Nothing here needs a dependency installed.
 
 ```
-node test/parity.mjs           # ~50 s, no browser
-node test/parity-browser.mjs   # ~10 s, spawns headless Chrome
-node tools/bundle.mjs          # rebuild index.html, then re-verify
+node tools/verify.mjs            # before committing: rebuild index.html + behaviour check  (~3 s)
+node tools/verify.mjs --full     # adds both original-parity harnesses                   (~1.5 min)
+node test/baseline.mjs           # behaviour vs test/baseline.json
+node test/baseline.mjs --update  # re-record it, after a change you meant to make
+node test/parity.mjs             # headless parity against the original demo
+node test/parity-browser.mjs     # rendered-output parity in headless Chrome
 ```
+
+`test/baseline.mjs` is the day-to-day regression net. It compares the simulation
+against `test/baseline.json` - behaviour you record, and re-record deliberately
+when a change is intended - so a failure means "behaviour moved and you did not
+say so". That is the check to run while adding features.
+
+The two parity harnesses below are the provenance check instead: they compare
+against `ref/18-flip.html`, so they pass only while behaviour is unchanged.
+Deliberately changing the physics will fail them, which is expected. Both roles
+are explained in `WORKFLOW.md`.
 
 **`test/parity.mjs`** boots the original from `ref/` inside a VM with a DOM and
 WebGL stub, runs the refactored build through the same script, and compares the
