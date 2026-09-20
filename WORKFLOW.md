@@ -92,12 +92,18 @@ To cut a version:
 
 ```
 # 1. bump VERSION in src/version.js
+# 2. add the entry to CHANGELOG.md, and update the version document in docs/
 node tools/verify.mjs --update         # only if behaviour changed on purpose
 git add -A
 git commit -m "v1.1.0: what changed"
 git tag -a v1.1.0 -m "what this version is"
 git push && git push --tags
 ```
+
+Each version gets an entry in `CHANGELOG.md`, and the document that describes it
+goes in `docs/` as `vX.Y.Z-short-name.md` - the specification while the work is
+planned, the record of what was built once it is done. `docs/v1.1.0-settings-debug-panel.md`
+is the first one.
 
 The tag name must match `src/version.js`: `node tools/verify.mjs` fails if HEAD
 carries a version tag that disagrees with the code, so the badge cannot lie about

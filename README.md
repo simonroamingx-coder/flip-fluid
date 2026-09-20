@@ -40,6 +40,9 @@ index.html              GENERATED - one self-contained file, runs by double-clic
 dev.html                the markup, loading src/ as modules; needs the server
 LICENSE                 MIT notice, verbatim
 WORKFLOW.md             how to commit, branch and roll back; what the tests mean
+CHANGELOG.md            one entry per version
+docs/
+  v1.1.0-settings-debug-panel.md   specification for the next version
 start.cmd               starts the server and opens dev.html
 src/
   main.js               bootstrap: context, canvas, scene, input, controls, loop
