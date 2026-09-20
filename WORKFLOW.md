@@ -94,16 +94,44 @@ To cut a version:
 # 1. bump VERSION in src/version.js
 # 2. add the entry to CHANGELOG.md, and update the version document in docs/
 node tools/verify.mjs --update         # only if behaviour changed on purpose
+node tools/verify.mjs --full           # the checks that gate a release
 git add -A
 git commit -m "v1.1.0: what changed"
 git tag -a v1.1.0 -m "what this version is"
 git push && git push --tags
+
+# 3. publish it, with the runnable single file attached under a versioned name
+Copy-Item index.html "$env:TEMP\flip-fluid-v1.1.0.html"
+gh release create v1.1.0 --title "v1.1.0 - what it is" --notes "what changed" `
+    "$env:TEMP\flip-fluid-v1.1.0.html"
+Remove-Item "$env:TEMP\flip-fluid-v1.1.0.html"
 ```
+
+The asset takes its name from the file, so copy it to a versioned name first:
+`file#label` renaming does not take effect reliably from PowerShell. For longer
+notes, `--notes-file` works, or build the text with a here-string.
 
 Each version gets an entry in `CHANGELOG.md`, and the document that describes it
 goes in `docs/` as `vX.Y.Z-short-name.md` - the specification while the work is
 planned, the record of what was built once it is done. `docs/v1.1.0-settings-debug-panel.md`
 is the first one.
+
+### Why publish a release and not just a tag
+
+A tag is enough for `git`, but a release is what a person can actually use:
+
+```text
+https://github.com/simonroamingx-coder/flip-fluid/releases
+```
+
+Each release page shows its notes and offers the generated `index.html` as a
+download, renamed to carry the version, so any old version can be fetched and
+opened by double-click without cloning anything. GitHub also attaches the source
+zip to every release automatically. The tags themselves remain browsable at
+`/tags`, and `/compare/v1.0.0...v1.1.0` shows what changed between two versions.
+
+`gh` is installed and authenticated on this machine, so the release step is one
+command. Do not move or re-tag a version that has already been published.
 
 The tag name must match `src/version.js`: `node tools/verify.mjs` fails if HEAD
 carries a version tag that disagrees with the code, so the badge cannot lie about
