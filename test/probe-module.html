@@ -1,0 +1,15 @@
+<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"><title>module load probe</title></head>
+<body>
+<div id="out">pending</div>
+<script type="module">
+try {
+    const m = await import('../src/app/canvas.js');
+    document.getElementById('out').textContent = 'MODULE_OK computeDomain=' + typeof m.computeDomain;
+} catch (error) {
+    document.getElementById('out').textContent = 'MODULE_FAIL ' + error.message;
+}
+</script>
+</body>
+</html>

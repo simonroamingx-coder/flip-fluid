@@ -1,0 +1,13 @@
+<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"><title>webgl probe</title></head>
+<body>
+<div id="out">pending</div>
+<script>
+var c = document.createElement('canvas');
+var g = c.getContext('webgl');
+document.getElementById('out').textContent = 'PROBE webgl=' + !!g +
+    (g ? ' version=' + g.getParameter(g.VERSION) + ' renderer=' + g.getParameter(g.RENDERER) : '');
+</script>
+</body>
+</html>

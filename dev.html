@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="en">
+<!--
+Copyright 2022 Matthias Müller - Ten Minute Physics,
+www.youtube.com/c/TenMinutePhysics
+www.matthiasMueller.info/tenMinutePhysics
+
+MIT License
+
+Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+-->
+
+	<head>
+		<meta charset="utf-8">
+		<meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+		<title>FLIP Fluid</title>
+		<link rel="stylesheet" href="src/styles/app.css">
+
+		<!-- build:dev-only -->
+		<!--
+			Development entry point. It loads the modules in src/, so it has to be
+			served over http: browsers refuse to fetch module scripts from file://
+			pages. Opening it from disk would otherwise give a blank canvas with
+			no reason why, which this notices and explains. index.html - the
+			generated single-file build - is the one that runs by double-click.
+		-->
+		<!-- /build:dev-only -->
+		<script>
+			window.addEventListener('load', function () {
+				setTimeout(function () {
+					if (window.__flip)
+						return;
+
+					var fromDisk = location.protocol === 'file:' &&
+						document.querySelector('script[type="module"]');
+
+					var notice = document.createElement('div');
+					notice.style.cssText = 'font-family: verdana; font-size: 14px; color: #900;' +
+						' border: 2px solid #900; padding: 10px; margin: 10px 0; max-width: 900px;';
+					notice.textContent = 'The simulation did not start. ' +
+						(fromDisk
+							? 'This is the development page, and opening it straight from disk cannot work: ' +
+							  'it loads its code as modules, which browsers refuse to fetch from file:// pages. ' +
+							  'Run "node tools/serve.mjs" and open http://localhost:8080/dev.html, or just open ' +
+							  'index.html, the single-file build, which needs no server. '
+							: '') +
+						'Check the browser console for errors.';
+					document.body.insertBefore(notice, document.body.firstChild);
+				}, 1500);
+			});
+		</script>
+	</head>
+
+<body>
+
+	<input type = "checkbox" id = "showParticles" checked>Particles &nbsp; 
+	<input type = "checkbox" id = "showGrid">Grid &nbsp;
+	<input type = "checkbox" id = "compensateDrift" checked>Compensate Drift &nbsp;
+	<input type = "checkbox" id = "separateParticles" checked>Separate Particles &nbsp;
+	PIC
+	<input type = "range" min = "0" max = "10" value = "9" class = "slider" id = "flipSlider"> FLIP 
+<br>
+	<canvas id="myCanvas"></canvas>
+
+	<script type="module" src="src/main.js"></script>
+</body>
+</html>

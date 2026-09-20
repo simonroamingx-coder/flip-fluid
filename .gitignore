@@ -1,0 +1,9 @@
+# Nothing here is installed automatically, but keep editor/OS noise out.
+node_modules/
+Thumbs.db
+.DS_Store
+
+# Local run output
+*.log
+test/serve.log
+test/serve.log.err
