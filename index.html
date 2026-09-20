@@ -19,7 +19,7 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 		<meta name="viewport" content="width=device-width, initial-scale=1.0">
 
 		<title>FLIP Fluid</title>
-		<!-- FLIP Fluid v1.0.0 - built by tools/bundle.mjs from dev.html and src/. Do not edit by hand; see WORKFLOW.md. -->
+		<!-- FLIP Fluid v1.1.0 - built by tools/bundle.mjs from dev.html and src/. Do not edit by hand; see WORKFLOW.md. -->
 		<style>
 /* Copyright 2022 Matthias Müller - Ten Minute Physics (MIT). See ../../LICENSE. */
 
@@ -55,6 +55,57 @@ body {
 	pointer-events: none;
 	-webkit-user-select: none;
 	user-select: none;
+}
+
+/* Settings panel. Fixed, so it never changes the canvas size - which is
+   measured from the window and decides the simulation domain. */
+#settings {
+	position: fixed;
+	top: 32px;
+	right: 8px;
+	width: 250px;
+	padding: 10px;
+	background: rgba(28, 28, 28, 0.86);
+	color: #eaeaea;
+	font-size: 13px;
+	border: 1px solid #444;
+	border-radius: 4px;
+	z-index: 10;
+}
+#settings .panel-title {
+	font-weight: bold;
+	margin-bottom: 8px;
+}
+#settings .field {
+	display: flex;
+	justify-content: space-between;
+	margin-bottom: 6px;
+}
+#settings .button {
+	width: 100%;
+	margin: 10px 0 0 0;
+	font-size: 13px;
+	padding: 6px 8px;
+}
+#particleSlider {
+	width: 230px;
+}
+#particleActual {
+	margin-top: 8px;
+	color: #9a9a9a;
+	min-height: 2.6em;
+}
+
+/* The original demo carried this rule for a button it never had. The settings
+   panel is the first thing here to need one. */
+.button {
+	background-color: #606060;
+	border: none;
+	color: white;
+	padding: 10px 10px;
+	font-size: 16px;
+	margin: 4px 2px;
+	cursor: pointer;
 }
 
 		</style>
@@ -95,6 +146,18 @@ body {
 	<input type = "range" min = "0" max = "10" value = "9" class = "slider" id = "flipSlider"> FLIP 
 <br>
 	<canvas id="myCanvas"></canvas>
+
+	<div id = "settings">
+		<div class = "panel-title">Settings</div>
+		<div class = "field">
+			<label for = "particleSlider">Particle Count</label>
+			<span id = "particleValue">26,000</span>
+		</div>
+		<input type = "range" id = "particleSlider" class = "slider" min = "1000" max = "50000" step = "1000" value = "26000">
+		<button id = "applyParticles" class = "button">Apply / Restart</button>
+		<div id = "particleActual"></div>
+	</div>
+
 	<span id = "version"></span>
 
 	<script>
@@ -777,9 +840,60 @@ __mods["src/core/scenarios.js"] = function (__exports, __req) {
 const { FlipFluid } = __req("src/core/FlipFluid.js");
 const { setObstacle } = __req("src/core/obstacle.js");
 
+// The grid resolution the original used. With no configuration this is what
+// setupScene uses, which keeps the default behaviour identical to v1.0.0 - the
+// behaviour baseline is what proves that.
+const DEFAULT_RESOLUTION = 100;
+
+const REL_WATER_WIDTH = 0.6;
+const REL_WATER_HEIGHT = 0.8;
+const PARTICLE_RADIUS_PER_CELL = 0.3;
+
+// Particle count is not a free parameter here: it falls out of the tank size,
+// the grid resolution, the particle radius (0.3 of a cell) and the water block
+// proportions. So asking for a count means solving for the resolution that
+// produces it. That keeps the block shape and the particle-to-cell ratio - and
+// therefore the character of the simulation - unchanged.
+function particleCountAt(resolution, simWidth, simHeight)
+{
+    const tankHeight = 1.0 * simHeight;
+    const tankWidth = 1.0 * simWidth;
+    const h = tankHeight / resolution;
+    const r = PARTICLE_RADIUS_PER_CELL * h;
+    const dx = 2.0 * r;
+    const dy = Math.sqrt(3.0) / 2.0 * dx;
+
+    const numX = Math.floor((REL_WATER_WIDTH * tankWidth - 2.0 * h - 2.0 * r) / dx);
+    const numY = Math.floor((REL_WATER_HEIGHT * tankHeight - 2.0 * h - 2.0 * r) / dy);
+    return numX * numY;
+}
+
+// Count grows with the square of the resolution. Take that as an estimate, then
+// compare the resolutions around it and return the closest achievable count -
+// the lattice is hexagonal, so only particular counts exist and the caller has
+// to be told what it actually got.
+function resolutionForParticleCount(target, simWidth, simHeight)
+{
+    const base = particleCountAt(DEFAULT_RESOLUTION, simWidth, simHeight);
+    const estimate = Math.max(2, Math.round(DEFAULT_RESOLUTION * Math.sqrt(target / base)));
+
+    let best = estimate;
+    let bestDelta = Infinity;
+
+    for (let resolution = Math.max(2, estimate - 4); resolution <= estimate + 4; resolution++) {
+        const delta = Math.abs(particleCountAt(resolution, simWidth, simHeight) - target);
+        if (delta < bestDelta) {
+            bestDelta = delta;
+            best = resolution;
+        }
+    }
+
+    return best;
+}
+
 // Dam break: a block of water in the left part of the tank, plus the disc.
 // This is a line-by-line port of setupScene() in the original file.
-function setupScene(scene, simWidth, simHeight)
+function setupScene(scene, simWidth, simHeight, config = null)
 {
     scene.obstacleRadius = 0.15;
     scene.overRelaxation = 1.9;
@@ -788,19 +902,25 @@ function setupScene(scene, simWidth, simHeight)
     scene.numPressureIters = 50;
     scene.numParticleIters = 2;
 
-    const res = 100;
+    const requested = config && config.particleCount ? config.particleCount : null;
+    const res = requested === null
+        ? DEFAULT_RESOLUTION
+        : resolutionForParticleCount(requested, simWidth, simHeight);
+
+    scene.requestedParticles = requested;
+    scene.gridResolution = res;
 
     const tankHeight = 1.0 * simHeight;
     const tankWidth = 1.0 * simWidth;
     const h = tankHeight / res;
     const density = 1000.0;
 
-    const relWaterHeight = 0.8;
-    const relWaterWidth = 0.6;
+    const relWaterHeight = REL_WATER_HEIGHT;
+    const relWaterWidth = REL_WATER_WIDTH;
 
     // compute number of particles
 
-    const r = 0.3 * h;    // particle radius w.r.t. cell size
+    const r = PARTICLE_RADIUS_PER_CELL * h;    // particle radius w.r.t. cell size
     const dx = 2.0 * r;
     const dy = Math.sqrt(3.0) / 2.0 * dx;
 
@@ -837,9 +957,48 @@ function setupScene(scene, simWidth, simHeight)
     }
 
     setObstacle(scene, 3.0, 2.0, true);
+
+    // The lattice is discrete, so this is what the request actually produced.
+    scene.actualParticles = f.numParticles;
 }
 
+	__exports.DEFAULT_RESOLUTION = DEFAULT_RESOLUTION;
+	__exports.particleCountAt = particleCountAt;
+	__exports.resolutionForParticleCount = resolutionForParticleCount;
 	__exports.setupScene = setupScene;
+};
+
+__mods["src/core/config.js"] = function (__exports, __req) {
+"use strict";
+// Copyright 2022 Matthias Müller - Ten Minute Physics (MIT). See ../../LICENSE.
+//
+// User-facing settings, kept apart from the live simulation state in scene.js:
+// config is what a person chose, the scene is what the solver is doing.
+
+const PARTICLES = {
+    min: 1000,
+    max: 50000,
+    step: 1000
+};
+
+function createConfig()
+{
+    return {
+        // null means "whatever the scenario works out from the tank", which is
+        // exactly what v1.0.0 did. A number means the user asked for a count,
+        // and the scenario solves for the grid resolution that produces it.
+        particleCount: null
+    };
+}
+
+function clampParticleCount(value)
+{
+    return Math.max(PARTICLES.min, Math.min(PARTICLES.max, value));
+}
+
+	__exports.PARTICLES = PARTICLES;
+	__exports.createConfig = createConfig;
+	__exports.clampParticleCount = clampParticleCount;
 };
 
 __mods["src/render/glUtils.js"] = function (__exports, __req) {
@@ -1007,20 +1166,27 @@ class Renderer
     {
         const gl = this.gl;
 
-        // prepare shaders
+        // prepare shaders - these depend only on the sources, so creating them
+        // once is enough even if the scene is rebuilt underneath them
 
-        this.pointShader = createShader(gl, pointVertexShader, pointFragmentShader);
-        this.meshShader = createShader(gl, meshVertexShader, meshFragmentShader);
+        if (!this.pointShader) {
+            this.pointShader = createShader(gl, pointVertexShader, pointFragmentShader);
+            this.meshShader = createShader(gl, meshVertexShader, meshFragmentShader);
 
-        this.pointLocations = getLocations(
-            gl, this.pointShader,
-            ['domainSize', 'pointSize', 'drawDisk'],
-            ['attrPosition', 'attrColor']);
+            this.pointLocations = getLocations(
+                gl, this.pointShader,
+                ['domainSize', 'pointSize', 'drawDisk'],
+                ['attrPosition', 'attrColor']);
 
-        this.meshLocations = getLocations(
-            gl, this.meshShader,
-            ['domainSize', 'color', 'translation', 'scale'],
-            ['attrPosition']);
+            this.meshLocations = getLocations(
+                gl, this.meshShader,
+                ['domainSize', 'color', 'translation', 'scale'],
+                ['attrPosition']);
+        }
+
+        // Buffers are sized from the grid and the particle count, so a rebuilt
+        // scene needs new ones. The old ones are released rather than leaked.
+        this.disposeBuffers();
 
         // grid vertex buffer: one point per cell centre
 
@@ -1073,6 +1239,20 @@ class Renderer
         gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, this.diskIdBuffer);
         gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, diskIds, gl.DYNAMIC_DRAW);
         gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, null);
+    }
+
+    disposeBuffers()
+    {
+        const gl = this.gl;
+        const names = ['gridVertBuffer', 'gridColorBuffer', 'pointVertexBuffer',
+            'pointColorBuffer', 'diskVertBuffer', 'diskIdBuffer'];
+
+        for (const name of names) {
+            if (this[name]) {
+                gl.deleteBuffer(this[name]);
+                this[name] = null;
+            }
+        }
     }
 
     draw(scene)
@@ -1338,8 +1518,48 @@ function attachControls(doc, scene)
     }
 }
 
+function formatCount(value)
+{
+    return String(value).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+}
+
+// The settings panel. Dragging the slider only moves a pending value; the scene
+// is rebuilt when Apply is pressed, never while dragging. The count that comes
+// back is reported next to the one that was asked for, because the lattice is
+// discrete and the two are rarely the same number.
+function attachSettings(doc, { particleCount, onApply })
+{
+    const slider = doc.getElementById('particleSlider');
+    const value = doc.getElementById('particleValue');
+    const actual = doc.getElementById('particleActual');
+    const apply = doc.getElementById('applyParticles');
+
+    if (!slider || !value || !actual || !apply)
+        return null;
+
+    slider.value = String(particleCount);
+    value.textContent = formatCount(slider.value);
+
+    slider.addEventListener('input', () => {
+        value.textContent = formatCount(slider.value);
+    });
+
+    apply.addEventListener('click', () => {
+        const result = onApply(Number(slider.value));
+        if (!result)
+            return;
+
+        actual.textContent = result.actual === result.requested
+            ? `${formatCount(result.actual)} particles`
+            : `${formatCount(result.actual)} particles (asked for ${formatCount(result.requested)}, grid ${result.resolution})`;
+    });
+
+    return { report: text => { actual.textContent = text; } };
+}
+
 	__exports.TOGGLES = TOGGLES;
 	__exports.attachControls = attachControls;
+	__exports.attachSettings = attachSettings;
 };
 
 __mods["src/app/loop.js"] = function (__exports, __req) {
@@ -1388,7 +1608,7 @@ __mods["src/version.js"] = function (__exports, __req) {
 // roll back to.
 //
 // Bumping this: see the versioning section of WORKFLOW.md.
-const VERSION = '1.0.0';
+const VERSION = '1.1.0';
 
 	__exports.VERSION = VERSION;
 };
@@ -1403,10 +1623,11 @@ __mods["src/main.js"] = function (__exports, __req) {
 const { createScene } = __req("src/core/scene.js");
 const { setupScene } = __req("src/core/scenarios.js");
 const { setObstacle } = __req("src/core/obstacle.js");
+const { createConfig, clampParticleCount, PARTICLES } = __req("src/core/config.js");
 const { Renderer } = __req("src/render/Renderer.js");
 const { setupCanvas } = __req("src/app/canvas.js");
 const { attachInput } = __req("src/app/Input.js");
-const { attachControls } = __req("src/app/UI.js");
+const { attachControls, attachSettings } = __req("src/app/UI.js");
 const { simulateOnce, startLoop } = __req("src/app/loop.js");
 const { VERSION } = __req("src/version.js");
 
@@ -1415,8 +1636,9 @@ const gl = canvas.getContext('webgl');
 
 const { cScale, simWidth, simHeight } = setupCanvas(canvas);
 
+const config = createConfig();
 const scene = createScene();
-setupScene(scene, simWidth, simHeight);
+setupScene(scene, simWidth, simHeight, config);
 
 const renderer = new Renderer(gl, canvas, simWidth, simHeight);
 renderer.init(scene.fluid);
@@ -1429,6 +1651,28 @@ attachInput({
     stepOnce: () => simulateOnce(scene)
 });
 attachControls(document, scene);
+
+// Applying a particle count rebuilds the scene in place and re-initialises the
+// renderer: its buffers are sized from the grid resolution and the particle
+// count, so reusing them after a rebuild would draw with the old sizes.
+function applyParticleCount(requested)
+{
+    config.particleCount = clampParticleCount(requested);
+    setupScene(scene, simWidth, simHeight, config);
+    renderer.init(scene.fluid);
+
+    return {
+        requested: scene.requestedParticles,
+        actual: scene.fluid.numParticles,
+        resolution: scene.gridResolution
+    };
+}
+
+// The slider starts at whatever the scenario produced, rounded to its step.
+attachSettings(document, {
+    particleCount: clampParticleCount(Math.round(scene.fluid.numParticles / PARTICLES.step) * PARTICLES.step),
+    onApply: applyParticleCount
+});
 
 // Shown in the corner of the page, so a screenshot or a running sim says which
 // version it is without anyone having to ask git.
@@ -1443,9 +1687,11 @@ startLoop(scene, renderer);
 window.__flip = {
     scene,
     renderer,
+    config,
     step: () => simulateOnce(scene),
     draw: () => renderer.draw(scene),
-    setObstacle: (x, y, reset) => setObstacle(scene, x, y, reset)
+    setObstacle: (x, y, reset) => setObstacle(scene, x, y, reset),
+    applyParticleCount
 };
 
 

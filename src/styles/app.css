@@ -33,3 +33,54 @@ body {
 	-webkit-user-select: none;
 	user-select: none;
 }
+
+/* Settings panel. Fixed, so it never changes the canvas size - which is
+   measured from the window and decides the simulation domain. */
+#settings {
+	position: fixed;
+	top: 32px;
+	right: 8px;
+	width: 250px;
+	padding: 10px;
+	background: rgba(28, 28, 28, 0.86);
+	color: #eaeaea;
+	font-size: 13px;
+	border: 1px solid #444;
+	border-radius: 4px;
+	z-index: 10;
+}
+#settings .panel-title {
+	font-weight: bold;
+	margin-bottom: 8px;
+}
+#settings .field {
+	display: flex;
+	justify-content: space-between;
+	margin-bottom: 6px;
+}
+#settings .button {
+	width: 100%;
+	margin: 10px 0 0 0;
+	font-size: 13px;
+	padding: 6px 8px;
+}
+#particleSlider {
+	width: 230px;
+}
+#particleActual {
+	margin-top: 8px;
+	color: #9a9a9a;
+	min-height: 2.6em;
+}
+
+/* The original demo carried this rule for a button it never had. The settings
+   panel is the first thing here to need one. */
+.button {
+	background-color: #606060;
+	border: none;
+	color: white;
+	padding: 10px 10px;
+	font-size: 16px;
+	margin: 4px 2px;
+	cursor: pointer;
+}

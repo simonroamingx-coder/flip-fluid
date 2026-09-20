@@ -65,7 +65,10 @@ function versionTagMatches()
 const versionCheck = versionTagMatches();
 steps.push({ label: 'version vs git tag', ok: versionCheck.ok, detail: versionCheck.detail });
 
-// 4. Optionally, the provenance checks against the original demo. These only
+// 4. The settings solver, as a pure function - fast, no browser.
+const settingsOk = run('settings solver', 'test/settings.mjs');
+
+// 5. Optionally, the provenance checks against the original demo. These only
 //    pass while behaviour is unchanged, so they are opt-in once you start
 //    adding features.
 let parityOk = true;
@@ -91,6 +94,7 @@ console.log('  ' + '-'.repeat(70));
 line('rebuild index.html', bundled, stale ? 'was stale, regenerated - commit it' : 'already current');
 line('behaviour baseline', baselineOk, '');
 line('version vs git tag', versionCheck.ok, versionCheck.detail);
+line('settings solver', settingsOk, '');
 if (full) {
     line('parity with the original', parityOk, '');
     line('rendered output in Chrome', browserOk, '');
@@ -114,4 +118,4 @@ if (!bundled) {
     console.log(`RESULT: PASS - ${steps.length} step(s) clean${skipped ? `, ${skipped} skipped` : ''}`);
 }
 
-process.exitCode = (failed || !baselineOk || (full && (!parityOk || !browserOk))) ? 1 : 0;
+process.exitCode = (failed || !baselineOk || !settingsOk || (full && (!parityOk || !browserOk))) ? 1 : 0;

@@ -36,20 +36,27 @@ export class Renderer
     {
         const gl = this.gl;
 
-        // prepare shaders
+        // prepare shaders - these depend only on the sources, so creating them
+        // once is enough even if the scene is rebuilt underneath them
 
-        this.pointShader = createShader(gl, pointVertexShader, pointFragmentShader);
-        this.meshShader = createShader(gl, meshVertexShader, meshFragmentShader);
+        if (!this.pointShader) {
+            this.pointShader = createShader(gl, pointVertexShader, pointFragmentShader);
+            this.meshShader = createShader(gl, meshVertexShader, meshFragmentShader);
 
-        this.pointLocations = getLocations(
-            gl, this.pointShader,
-            ['domainSize', 'pointSize', 'drawDisk'],
-            ['attrPosition', 'attrColor']);
+            this.pointLocations = getLocations(
+                gl, this.pointShader,
+                ['domainSize', 'pointSize', 'drawDisk'],
+                ['attrPosition', 'attrColor']);
 
-        this.meshLocations = getLocations(
-            gl, this.meshShader,
-            ['domainSize', 'color', 'translation', 'scale'],
-            ['attrPosition']);
+            this.meshLocations = getLocations(
+                gl, this.meshShader,
+                ['domainSize', 'color', 'translation', 'scale'],
+                ['attrPosition']);
+        }
+
+        // Buffers are sized from the grid and the particle count, so a rebuilt
+        // scene needs new ones. The old ones are released rather than leaked.
+        this.disposeBuffers();
 
         // grid vertex buffer: one point per cell centre
 
@@ -102,6 +109,20 @@ export class Renderer
         gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, this.diskIdBuffer);
         gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, diskIds, gl.DYNAMIC_DRAW);
         gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, null);
+    }
+
+    disposeBuffers()
+    {
+        const gl = this.gl;
+        const names = ['gridVertBuffer', 'gridColorBuffer', 'pointVertexBuffer',
+            'pointColorBuffer', 'diskVertBuffer', 'diskIdBuffer'];
+
+        for (const name of names) {
+            if (this[name]) {
+                gl.deleteBuffer(this[name]);
+                this[name] = null;
+            }
+        }
     }
 
     draw(scene)

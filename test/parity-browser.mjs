@@ -61,6 +61,11 @@ const DIGEST_JS = `
         s.fluid.particleDensity, s.fluid.particleColor].map(digest).join('-');
 `;
 
+// Elements that are deliberate additions to the page rather than part of the
+// original. They are recorded, then removed before the DOM and screenshot are
+// compared, so everything else is still checked exactly against the original.
+const ADDITIVE_IDS = ['version', 'settings'];
+
 // Both snippets do exactly the same thing; only the entry point differs.
 function driveScript(entry)
 {
@@ -71,6 +76,7 @@ function driveScript(entry)
         ${DIGEST_JS}
         const versionElement = document.getElementById('version');
         const version = versionElement ? versionElement.textContent.trim() : null;
+        const additive = ${JSON.stringify(ADDITIVE_IDS)}.filter(id => document.getElementById(id));
         const step = () => S.fluid.simulate(
             S.dt, S.gravity, S.flipRatio, S.numPressureIters, S.numParticleIters,
             S.overRelaxation, S.compensateDrift, S.separateParticles,
@@ -84,10 +90,9 @@ function driveScript(entry)
         for (let i = 0; i < 15; i++) step();
 
         draw();
-        // The version stamp is a deliberate addition, not part of the original
-        // page. Record it above, then drop it so the DOM and screenshot
-        // comparisons below still describe everything else exactly.
-        if (versionElement) versionElement.remove();
+        // Recorded above, dropped here, so the comparisons below still describe
+        // everything that came from the original.
+        for (const id of additive) document.getElementById(id).remove();
 
         return JSON.stringify({
             initialDigest: initialDigest,
@@ -95,6 +100,39 @@ function driveScript(entry)
             frameNr: S.frameNr,
             numParticles: S.fluid.numParticles,
             version: version,
+            additive: additive,
+            canvas: document.getElementById('myCanvas').toDataURL('image/png')
+        });
+    })()`;
+}
+
+// Exercises the settings panel for real: move the slider, click Apply, and see
+// what the scene and the panel say afterwards. Pages without a panel report
+// supported: false, which is what the original page should do.
+function settingsScript()
+{
+    return `(() => {
+        const slider = document.getElementById('particleSlider');
+        const apply = document.getElementById('applyParticles');
+        if (!slider || !apply)
+            return JSON.stringify({ supported: false });
+
+        const entry = window.__flip;
+        const before = entry.scene.fluid.numParticles;
+
+        slider.value = '12000';
+        slider.dispatchEvent(new Event('input', { bubbles: true }));
+        apply.click();
+        entry.draw();
+
+        return JSON.stringify({
+            supported: true,
+            before: before,
+            requested: entry.scene.requestedParticles,
+            actual: entry.scene.fluid.numParticles,
+            resolution: entry.scene.gridResolution,
+            label: document.getElementById('particleValue').textContent,
+            report: document.getElementById('particleActual').textContent,
             canvas: document.getElementById('myCanvas').toDataURL('image/png')
         });
     })()`;
@@ -312,7 +350,32 @@ async function openPage(cdp, url, entry)
     })).result.value);
     console.log('  controls exercised');
 
-    return { url, errors, webgl, loaded, driven, controlled, probe, shot: Buffer.from(shot, 'base64') };
+    // A fresh visit, because applying a particle count changes the scene and the
+    // panel has already been removed from the page above.
+    await cdp.send('Page.navigate', { url });
+    await waitFor(async () => {
+        const { result } = await cdp.send('Runtime.evaluate', { expression: 'document.readyState', returnByValue: true });
+        return result.value === 'complete';
+    }, 20000, 'page load');
+    await waitFor(async () => {
+        const { result } = await cdp.send('Runtime.evaluate', {
+            expression: `Boolean(${entry} && ${entry}.scene && ${entry}.scene.fluid)`, returnByValue: true
+        });
+        return result.value === true;
+    }, 20000, entry);
+
+    const settings = JSON.parse((await cdp.send('Runtime.evaluate', {
+        expression: settingsScript(), returnByValue: true
+    })).result.value);
+    console.log('  settings exercised');
+
+    const settingsShot = (await cdp.send('Page.captureScreenshot', { format: 'png' })).data;
+
+    return {
+        url, errors, webgl, loaded, driven, controlled, settings, probe,
+        shot: Buffer.from(shot, 'base64'),
+        settingsShot: Buffer.from(settingsShot, 'base64')
+    };
 }
 
 // --------------------------------------------------------------- png diff
@@ -490,6 +553,7 @@ try {
     await writeFile(join(artifacts, 'original.png'), original.shot);
     await writeFile(join(artifacts, 'refactored.png'), refactored.shot);
     await writeFile(join(artifacts, 'standalone.png'), standalone.shot);
+    await writeFile(join(artifacts, 'settings-applied-standalone.png'), standalone.settingsShot);
 
     const checks = [];
     const check = (name, ok, detail) => checks.push({ name, ok, detail });
@@ -518,6 +582,28 @@ try {
         standalone.driven.version === 'v' + VERSION &&
         original.driven.version === null,
         `dev.html and index.html show v${VERSION}; the original shows none`);
+
+    const withCommas = value => String(value).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+
+    check('settings panel present',
+        refactored.settings.supported && standalone.settings.supported && !original.settings.supported,
+        'dev.html and index.html have it; the original does not');
+
+    check('settings apply a new particle count',
+        [refactored, standalone].every(page =>
+            page.settings.requested === 12000 &&
+            page.settings.actual !== page.settings.before &&
+            Math.abs(page.settings.actual - 12000) / 12000 < 0.05),
+        `asked 12,000 of ${withCommas(refactored.settings.before)}, got ${withCommas(refactored.settings.actual)} `
+        + `at grid ${refactored.settings.resolution}`);
+
+    check('settings panel reports what it got',
+        [refactored, standalone].every(page => page.settings.report.includes(withCommas(page.settings.actual))),
+        `"${refactored.settings.report}"`);
+
+    check('rebuilt scene renders',
+        [refactored, standalone].every(page => !blank(page.settings.canvas)),
+        'renderer buffers follow the new grid and particle sizes, so the scene still draws');
 
     const probeDiffs = new Map();
 

@@ -4,6 +4,10 @@ The single-file FLIP fluid demo (`ref/18-flip.html`, Ten Minute Physics episode 
 by Matthias Müller) split into modules - with the simulation and the rendered
 output verified identical to the original, not assumed identical.
 
+The page also carries a small settings panel: the particle count can be changed
+and applied, and the simulation rebuilds around it. See [WORKFLOW.md](WORKFLOW.md)
+for how versions and releases work.
+
 `ref/18-flip.html` is a byte-identical copy of the original single file
 (sha256 `30682CCD...`), kept so the project stands on its own. Nothing in it has
 been modified. Every claim below is checked against it by a script in `test/`.

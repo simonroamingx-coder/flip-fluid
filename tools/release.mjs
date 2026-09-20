@@ -189,7 +189,7 @@ if (!section)
     fail(`CHANGELOG.md has no "## v${version}" section.\n\nAdd it first: those lines become the release notes.`);
 note(`CHANGELOG.md has v${version}: ${section.name}`);
 
-if (/planned|not started/i.test(section.body))
+if (/planned|not started|in progress|not released/i.test(section.body))
     note('warning: that changelog entry still reads as planned - update it before publishing');
 
 const docs = existsSync(join(root, 'docs'))

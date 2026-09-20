@@ -66,6 +66,18 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 	<input type = "range" min = "0" max = "10" value = "9" class = "slider" id = "flipSlider"> FLIP 
 <br>
 	<canvas id="myCanvas"></canvas>
+
+	<div id = "settings">
+		<div class = "panel-title">Settings</div>
+		<div class = "field">
+			<label for = "particleSlider">Particle Count</label>
+			<span id = "particleValue">26,000</span>
+		</div>
+		<input type = "range" id = "particleSlider" class = "slider" min = "1000" max = "50000" step = "1000" value = "26000">
+		<button id = "applyParticles" class = "button">Apply / Restart</button>
+		<div id = "particleActual"></div>
+	</div>
+
 	<span id = "version"></span>
 
 	<script type="module" src="src/main.js"></script>
