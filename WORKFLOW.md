@@ -138,6 +138,11 @@ branch is `main`, the branch is not behind `origin/main`, and `CHANGELOG.md`
 already has a `## v1.1.0` section - those lines become the release notes, which
 is why the entry has to be written first.
 
+Bumping `VERSION` when a piece of work starts is fine. Running the release for a
+version the code already declares, with no tag for it yet, tags and publishes
+what is there instead of refusing; and if there is then nothing to commit, that
+is the prepared case rather than an error.
+
 The steps it performs, if you would rather do them by hand:
 
 ```

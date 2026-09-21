@@ -137,8 +137,19 @@ const currentVersion = versionSource.match(/VERSION = '([^']+)'/)?.[1];
 
 if (!currentVersion)
     fail('could not read VERSION from src/version.js');
-if (compareVersions(version, currentVersion) <= 0)
-    fail(`src/version.js already says ${currentVersion}. Pick a higher version.`);
+
+// Three cases, and the middle one is why this is not a simple comparison: the
+// version may already be set in the code with no tag for it yet, because it was
+// bumped when the work started rather than when it finished. That is a release
+// waiting to happen rather than a mistake, so it proceeds with the bump as a
+// no-op.
+const comparison = compareVersions(version, currentVersion);
+const alreadyTagged = git('rev-parse', '--verify', '--quiet', 'refs/tags/v' + version).ok;
+
+if (comparison < 0)
+    fail(`src/version.js says ${currentVersion}, which is ahead of ${version}. Nothing to release.`);
+if (comparison === 0 && alreadyTagged)
+    fail(`v${version} is already tagged. Pick a higher version.`);
 
 // -------------------------------------------------------------------- guards
 
@@ -183,6 +194,9 @@ note(ahead === '0'
     ? `up to date with origin/main (${head.slice(0, 7)})`
     : `${ahead} commit(s) ahead of origin/main; the release will push them`);
 
+if (comparison === 0)
+    note(`src/version.js already says ${version} and has no tag yet, so this tags and publishes it`);
+
 const changelogPath = join(root, 'CHANGELOG.md');
 const section = changelogSection(readFileSync(changelogPath, 'utf8'), version);
 if (!section)
@@ -223,7 +237,9 @@ const notes = `**Run it:** download \`${assetName}\` below and open it - one sel
 console.log('');
 console.log('  plan');
 console.log('  ' + '-'.repeat(66));
-console.log(`  version      ${currentVersion} -> ${version}   (src/version.js)`);
+console.log('  version      '
+    + (comparison === 0 ? `${version} (already set, no tag yet)` : `${currentVersion} -> ${version}`)
+    + '   (src/version.js)');
 console.log(`  commit       ${subject}`);
 console.log(`  tag          ${tag}`);
 console.log(`  push         origin main + ${tag}`);
@@ -264,14 +280,19 @@ const added = git('add', '-A');
 if (!added.ok)
     fail('git add failed' + because(added));
 
-const committed = git('commit', '-m', subject, '-m', section.body);
-if (!committed.ok) {
-    const staged = git('status', '--porcelain').stdout.trim();
-    fail('git commit failed' + because(committed)
-        + (staged ? '\n\nworking tree:\n' + staged : '')
-        + '\n\nIf nothing was left to commit, the version was already bumped and index.html already rebuilt.');
+// When the version was bumped ahead of time and index.html is already current,
+// there is nothing to commit - that is the prepared case, not a failure.
+if (!git('status', '--porcelain').stdout.trim()) {
+    note('nothing to commit: the version was already set and index.html already current');
+} else {
+    const committed = git('commit', '-m', subject, '-m', section.body);
+    if (!committed.ok) {
+        const staged = git('status', '--porcelain').stdout.trim();
+        fail('git commit failed' + because(committed)
+            + (staged ? '\n\nworking tree:\n' + staged : ''));
+    }
+    note(subject);
 }
-note(subject);
 
 heading('tag');
 const existingTag = git('rev-parse', '--verify', '--quiet', 'refs/tags/' + tag);
