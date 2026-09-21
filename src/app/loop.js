@@ -37,9 +37,11 @@ export function startLoop({ scene, drawFrame, debug, onSample, sampleIntervalMs 
 
         const afterSimulate = performance.now();
 
-        // Recomputed every frame while a view is on, so the field moves with the
-        // simulation instead of stepping a few times a second.
-        if (debug && debug.enabled)
+        // Called every frame, unconditionally: the view layer decides inside what
+        // needs recomputing. The particle colour mode is a view option that works
+        // with debug off, so gating this on the debug switch made that control do
+        // nothing at all until debug was enabled.
+        if (debug)
             debug.updateField(scene);
 
         drawFrame();

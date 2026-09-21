@@ -336,6 +336,16 @@ function panelScript()
         entry.setObstacle(3.0, 2.0, true);
         await discShot('#ff0000', 1, 0.15);
 
+        // The colour mode is a view option, so it has to work with debug off - which
+        // it did not, because the loop only reached the code that applies it while
+        // debug was on. Debug is off by default, so the control did nothing at all.
+        setView('debugEnabled', false);
+        await wait(200);
+        const modeWithDebugOff = await modeShot('speed');
+        const densityWithDebugOff = await modeShot('density');
+        setView('debugEnabled', true);
+        await wait(200);
+
         Object.assign(views, {
             modesDiffer: new Set([densityParticles, speedParticles, pressureParticles, vorticityParticles]).size === 4,
             modesSeen: modeSeen.join(' '),
@@ -353,7 +363,8 @@ function panelScript()
             discOpacityDiffers: discFaint !== discRed,
             discSizeDiffers: discLarge !== discRed,
             discSizeIsPhysical: largeDisc.grabbed > smallDisc.grabbed * 2,
-            discSize: 'small ' + JSON.stringify(smallDisc) + ' -> large ' + JSON.stringify(largeDisc)
+            discSize: 'small ' + JSON.stringify(smallDisc) + ' -> large ' + JSON.stringify(largeDisc),
+            modeWorksWithDebugOff: modeWithDebugOff !== densityWithDebugOff
         });
 
         // How often the field is recomputed, against how often we are drawing.
@@ -925,6 +936,12 @@ try {
         [refactored, standalone].every(page => page.settings.views.modesDiffer),
         `${refactored.settings.views.modesSeen} | lengths ${refactored.settings.views.modesLengths} `
         + `| equal: ${refactored.settings.views.modePairs}`);
+
+    // Debug is off by default, so a colour mode that only worked with it on would
+    // appear to do nothing at all to anyone who just opened the page.
+    check('the colour mode works with debug off',
+        [refactored, standalone].every(page => page.settings.views.modeWorksWithDebugOff),
+        'it is a view option, not a debug one');
 
     check('the disc takes the colour and opacity it is given',
         [refactored, standalone].every(page =>

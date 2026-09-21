@@ -227,11 +227,13 @@ export function createDebug()
     function fieldView(scene)
     {
         const fluid = scene.fluid;
-        if (!enabled || !fluid)
+        if (!fluid)
             return null;
 
         const view = {};
 
+        // The fields and vectors are debug views and need it on; the particle
+        // colours are a view option and do not.
         if (enabled) {
             // At most one colour field: pressure and cell types are both the whole
             // grid painted, so showing both would just hide one behind the other.
