@@ -4,13 +4,14 @@ The single-file FLIP fluid demo (`ref/18-flip.html`, Ten Minute Physics episode 
 by Matthias Müller) split into modules - with the simulation and the rendered
 output verified identical to the original, not assumed identical.
 
-The page also carries two small panels: settings, where the particle count can be
-changed and applied, and debug, which reports frame rate, timings, particle
-counts, grid statistics and a stage-by-stage breakdown of the simulation while it
-is switched on, and can draw the pressure field or the cell types over the
-simulation - the grid as the solver sees it, which doubles as the collision view.
-It also draws velocity vectors, and reports the solver's own settings: time step,
-grid resolution, pressure iterations, FLIP ratio and memory. See
+The page also carries two small panels. **Settings** changes the particle count
+and applies it. **Display** holds every view switch in one place - particles and
+the density grid, which used to be checkboxes on the top row, plus the debug views:
+pressure as red intensity, the cell types, which is the grid as the solver sees it
+and doubles as the collision view, and velocity vectors. Switching debug on
+reveals the statistics behind them: frame rate, timings stage by stage, particle
+and grid counts, and the solver's own settings - time step, grid resolution,
+pressure iterations, FLIP ratio and memory. See
 [WORKFLOW.md](WORKFLOW.md) for how versions and releases work - committing is
 local, and pushing is the step you take when you are satisfied with a piece of
 work.

@@ -86,6 +86,13 @@ body {
 	align-items: center;
 	gap: 6px;
 }
+.toggle input:disabled {
+	opacity: 0.4;
+}
+#debugViews .toggle,
+#debugStats {
+	margin-top: 2px;
+}
 #debugStats {
 	margin-top: 8px;
 }

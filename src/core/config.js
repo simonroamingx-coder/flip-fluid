@@ -22,7 +22,12 @@ export function createConfig()
             // work for nothing.
             enabled: false,
 
-            // Debug views drawn over the simulation, and only while debug is on.
+            // What is drawn over the simulation. Particles and grid used to be
+            // checkboxes on the top row; they moved here so that every view switch
+            // is in one place, which is what the specification asks for. The three
+            // below them need debug switched on, the two above it do not.
+            showParticles: true,
+            showGrid: false,
             showPressure: false,
             showCellTypes: false,
             showVelocity: false

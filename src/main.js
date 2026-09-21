@@ -30,6 +30,12 @@ renderer.init(scene.fluid);
 const debug = createDebug();
 debug.setEnabled(config.debug.enabled);
 
+// The view flags the renderer reads live in the scene, as they always have; the
+// configuration holds the choice and the scene holds what is applied, the same
+// way the particle count does.
+scene.showParticles = config.debug.showParticles;
+scene.showGrid = config.debug.showGrid;
+
 attachInput({
     canvas,
     doc: document,
@@ -73,6 +79,8 @@ attachSettings(document, {
 const debugPanel = attachDebugPanel(document, {
     enabled: config.debug.enabled,
     views: {
+        particles: config.debug.showParticles,
+        grid: config.debug.showGrid,
         pressure: config.debug.showPressure,
         cellTypes: config.debug.showCellTypes,
         velocity: config.debug.showVelocity
@@ -88,7 +96,9 @@ const debugPanel = attachDebugPanel(document, {
             debugPanel.update(debug.stats);
         } else {
             // A view with the collector switched off is neither collected nor
-            // controllable, so switching debug off switches the views off too.
+            // controllable, so switching debug off switches the debug views off
+            // too - but particles and grid are not debug views and stay as they
+            // are.
             config.debug.showPressure = false;
             config.debug.showCellTypes = false;
             config.debug.showVelocity = false;
@@ -97,6 +107,14 @@ const debugPanel = attachDebugPanel(document, {
         }
     },
     onViews: views => {
+        // Particles and grid are the two that used to be on the top row. They are
+        // still scene state, which is what the renderer reads; the panel is simply
+        // where they are set now.
+        config.debug.showParticles = views.particles;
+        config.debug.showGrid = views.grid;
+        scene.showParticles = views.particles;
+        scene.showGrid = views.grid;
+
         config.debug.showPressure = views.pressure;
         config.debug.showCellTypes = views.cellTypes;
         config.debug.showVelocity = views.velocity;

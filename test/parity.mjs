@@ -16,7 +16,7 @@
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
-import { TOGGLES } from '../src/app/UI.js';
+import { TOGGLES, VIEW_TOGGLES } from '../src/app/UI.js';
 import { VERSION } from '../src/version.js';
 import {
     VIEWPORT, SCENARIO, loadReference, loadRefactored, domainForViewport,
@@ -68,15 +68,25 @@ check('post-run state', differing.length === 0,
 
 // ---------------------------------------------------------- markup and wiring
 
-// The panel must flip the same flags the original's inline handlers flipped,
-// and nothing else.
+// Two of the original's checkboxes moved out of the top row and into the display
+// panel, and the panel gained three the original never had. So the properties
+// worth checking are that nothing was lost in the move, and that no flag ended up
+// with two switches - which is the duplication the specification warns about.
 const inlineToggles = [...refHtml.matchAll(/onclick\s*=\s*"scene\.(\w+)\s*=\s*!\s*scene\.\1"/g)].map(m => m[1]);
-const moduleToggles = TOGGLES.map(t => t.flag);
-check('checkbox flags', JSON.stringify(inlineToggles) === JSON.stringify(moduleToggles),
-    `inline [${inlineToggles.join(', ')}] vs module [${moduleToggles.join(', ')}]`);
+const moduleToggles = [...TOGGLES.map(t => t.flag), ...VIEW_TOGGLES.map(v => v.flag)];
+
+const lost = inlineToggles.filter(flag => !moduleToggles.includes(flag));
+const doubled = moduleToggles.filter((flag, index) => moduleToggles.indexOf(flag) !== index);
+
+check('every switch the original had still exists', lost.length === 0,
+    lost.length ? `no longer reachable: ${lost.join(', ')}`
+        : `original [${inlineToggles.join(', ')}], all reachable from the top row or the panel`);
+check('no flag has two switches', doubled.length === 0,
+    doubled.length ? `doubled: ${doubled.join(', ')}`
+        : `top row [${TOGGLES.map(t => t.flag).join(', ')}] + panel [${VIEW_TOGGLES.map(v => v.flag).join(', ')}]`);
 check('checkbox ids present in markup',
-    TOGGLES.every(t => devHtml.includes(`id = "${t.id}"`) || devHtml.includes(`id="${t.id}"`)),
-    TOGGLES.map(t => t.id).join(', '));
+    [...TOGGLES, ...VIEW_TOGGLES].every(t => devHtml.includes(`id = "${t.id}"`) || devHtml.includes(`id="${t.id}"`)),
+    [...TOGGLES, ...VIEW_TOGGLES].map(t => t.id).join(', '));
 
 const inlineSlider = refHtml.match(/onchange\s*=\s*"scene\.flipRatio\s*=\s*0\.1\s*\*\s*this\.value"/);
 check('slider mapping', Boolean(inlineSlider) && devHtml.includes('id = "flipSlider"'),

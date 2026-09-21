@@ -58,8 +58,6 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 
 <body>
 
-	<input type = "checkbox" id = "showParticles" checked>Particles &nbsp; 
-	<input type = "checkbox" id = "showGrid">Grid &nbsp;
 	<input type = "checkbox" id = "compensateDrift" checked>Compensate Drift &nbsp;
 	<input type = "checkbox" id = "separateParticles" checked>Separate Particles &nbsp;
 	PIC
@@ -80,7 +78,9 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 		</div>
 
 		<div id = "debug" class = "panel">
-			<div class = "panel-title">Debug</div>
+			<div class = "panel-title">Display</div>
+			<label class = "toggle"><input type = "checkbox" id = "showParticles" checked> Particles</label>
+			<label class = "toggle"><input type = "checkbox" id = "showGrid"> Grid</label>
 			<label class = "toggle"><input type = "checkbox" id = "debugEnabled"> Enable Debug</label>
 			<div id = "debugViews" hidden>
 				<label class = "toggle"><input type = "checkbox" id = "showPressure"> Pressure</label>

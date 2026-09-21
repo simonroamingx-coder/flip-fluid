@@ -129,14 +129,24 @@ the page tells you what you are looking at.
 To cut a version:
 
 ```
-node tools/release.mjs 1.1.0 --dry-run      # see the plan, change nothing
-node tools/release.mjs 1.1.0                # check, confirm, then do it
+node tools/release.mjs 1.2.0 --dry-run      # see the plan, change nothing
+node tools/release.mjs 1.2.0                # both halves, in order
+
+node tools/release.mjs 1.2.0 --prepare      # the local half: bump, rebuild,
+                                            # verify, commit, tag
+node tools/release.mjs --publish            # the network half: push, release
 ```
 
-That is the whole flow. It refuses to run unless the working tree is clean, the
-branch is `main`, the branch is not behind `origin/main`, and `CHANGELOG.md`
-already has a `## v1.1.0` section - those lines become the release notes, which
-is why the entry has to be written first.
+The two halves fail for different reasons, which is why they can be run apart.
+Preparing is local and repeatable; publishing needs the network. If a push fails
+half way, nothing is left half-published - the commits and the tag are local, and
+`--publish` again finishes the job. Publishing without a version uses the most
+recent tag, so resuming needs nothing remembered.
+
+It refuses to run unless the working tree is clean, the branch is `main`, the
+branch is not behind `origin/main`, and `CHANGELOG.md` already has a section for
+that version - those lines become the release notes, which is why the entry has to
+be written first.
 
 Bumping `VERSION` when a piece of work starts is fine. Running the release for a
 version the code already declares, with no tag for it yet, tags and publishes

@@ -109,6 +109,13 @@ body {
 	align-items: center;
 	gap: 6px;
 }
+.toggle input:disabled {
+	opacity: 0.4;
+}
+#debugViews .toggle,
+#debugStats {
+	margin-top: 2px;
+}
 #debugStats {
 	margin-top: 8px;
 }
@@ -178,8 +185,6 @@ body {
 
 <body>
 
-	<input type = "checkbox" id = "showParticles" checked>Particles &nbsp; 
-	<input type = "checkbox" id = "showGrid">Grid &nbsp;
 	<input type = "checkbox" id = "compensateDrift" checked>Compensate Drift &nbsp;
 	<input type = "checkbox" id = "separateParticles" checked>Separate Particles &nbsp;
 	PIC
@@ -200,7 +205,9 @@ body {
 		</div>
 
 		<div id = "debug" class = "panel">
-			<div class = "panel-title">Debug</div>
+			<div class = "panel-title">Display</div>
+			<label class = "toggle"><input type = "checkbox" id = "showParticles" checked> Particles</label>
+			<label class = "toggle"><input type = "checkbox" id = "showGrid"> Grid</label>
 			<label class = "toggle"><input type = "checkbox" id = "debugEnabled"> Enable Debug</label>
 			<div id = "debugViews" hidden>
 				<label class = "toggle"><input type = "checkbox" id = "showPressure"> Pressure</label>
@@ -1098,7 +1105,12 @@ function createConfig()
             // work for nothing.
             enabled: false,
 
-            // Debug views drawn over the simulation, and only while debug is on.
+            // What is drawn over the simulation. Particles and grid used to be
+            // checkboxes on the top row; they moved here so that every view switch
+            // is in one place, which is what the specification asks for. The three
+            // below them need debug switched on, the two above it do not.
+            showParticles: true,
+            showGrid: false,
             showPressure: false,
             showCellTypes: false,
             showVelocity: false
@@ -2241,11 +2253,22 @@ __mods["src/app/UI.js"] = function (__exports, __req) {
 // its scene flag on click, and the slider sets flipRatio on change - it is just
 // attached here instead of in the markup.
 
+// The two checkboxes left on the top row, which are solver options rather than
+// view options.
 const TOGGLES = [
-    { id: 'showParticles', flag: 'showParticles' },
-    { id: 'showGrid', flag: 'showGrid' },
     { id: 'compensateDrift', flag: 'compensateDrift' },
     { id: 'separateParticles', flag: 'separateParticles' }
+];
+
+// Every view switch, in the order the specification lists them. The first two are
+// plain rendering options that work with debug off; the last three are collected
+// by the debug layer and are disabled until it is switched on.
+const VIEW_TOGGLES = [
+    { id: 'showParticles', key: 'particles', flag: 'showParticles', needsDebug: false },
+    { id: 'showGrid', key: 'grid', flag: 'showGrid', needsDebug: false },
+    { id: 'showPressure', key: 'pressure', flag: 'showPressure', needsDebug: true },
+    { id: 'showCellTypes', key: 'cellTypes', flag: 'showCellTypes', needsDebug: true },
+    { id: 'showVelocity', key: 'velocity', flag: 'showVelocity', needsDebug: true }
 ];
 
 function attachControls(doc, scene)
@@ -2332,12 +2355,6 @@ const DEBUG_ROWS = [
     { key: 'memoryBytes', label: 'Memory', format: value => (value / 1048576).toFixed(1) + ' MB' }
 ];
 
-const DEBUG_VIEWS = [
-    { id: 'showPressure', key: 'pressure' },
-    { id: 'showCellTypes', key: 'cellTypes' },
-    { id: 'showVelocity', key: 'velocity' }
-];
-
 function attachDebugPanel(doc, { enabled, views, onToggle, onViews })
 {
     const checkbox = doc.getElementById('debugEnabled');
@@ -2376,12 +2393,14 @@ function attachDebugPanel(doc, { enabled, views, onToggle, onViews })
         cells.set(row.key, { format: row.format, element: value });
     }
 
-    for (const view of DEBUG_VIEWS) {
+    for (const view of VIEW_TOGGLES) {
         const box = doc.getElementById(view.id);
         if (!box)
             continue;
 
         box.checked = Boolean(views && views[view.key]);
+        if (view.needsDebug)
+            box.disabled = !enabled;
         box.addEventListener('change', () => {
             const next = {};
             for (const [key, element] of viewBoxes)
@@ -2410,6 +2429,15 @@ function attachDebugPanel(doc, { enabled, views, onToggle, onViews })
             body.hidden = !value;
             if (viewBox)
                 viewBox.hidden = !value;
+
+            // The debug views go with the debug switch; the view switches that do
+            // not need it stay usable.
+            for (const view of VIEW_TOGGLES) {
+                const box = viewBoxes.get(view.key);
+                if (box && view.needsDebug)
+                    box.disabled = !value;
+            }
+
             if (!value) {
                 for (const cell of cells.values())
                     cell.element.textContent = cell.format(0);
@@ -2429,6 +2457,7 @@ function attachDebugPanel(doc, { enabled, views, onToggle, onViews })
 }
 
 	__exports.TOGGLES = TOGGLES;
+	__exports.VIEW_TOGGLES = VIEW_TOGGLES;
 	__exports.attachControls = attachControls;
 	__exports.attachSettings = attachSettings;
 	__exports.attachDebugPanel = attachDebugPanel;
@@ -2559,6 +2588,12 @@ renderer.init(scene.fluid);
 const debug = createDebug();
 debug.setEnabled(config.debug.enabled);
 
+// The view flags the renderer reads live in the scene, as they always have; the
+// configuration holds the choice and the scene holds what is applied, the same
+// way the particle count does.
+scene.showParticles = config.debug.showParticles;
+scene.showGrid = config.debug.showGrid;
+
 attachInput({
     canvas,
     doc: document,
@@ -2602,6 +2637,8 @@ attachSettings(document, {
 const debugPanel = attachDebugPanel(document, {
     enabled: config.debug.enabled,
     views: {
+        particles: config.debug.showParticles,
+        grid: config.debug.showGrid,
         pressure: config.debug.showPressure,
         cellTypes: config.debug.showCellTypes,
         velocity: config.debug.showVelocity
@@ -2617,7 +2654,9 @@ const debugPanel = attachDebugPanel(document, {
             debugPanel.update(debug.stats);
         } else {
             // A view with the collector switched off is neither collected nor
-            // controllable, so switching debug off switches the views off too.
+            // controllable, so switching debug off switches the debug views off
+            // too - but particles and grid are not debug views and stay as they
+            // are.
             config.debug.showPressure = false;
             config.debug.showCellTypes = false;
             config.debug.showVelocity = false;
@@ -2626,6 +2665,14 @@ const debugPanel = attachDebugPanel(document, {
         }
     },
     onViews: views => {
+        // Particles and grid are the two that used to be on the top row. They are
+        // still scene state, which is what the renderer reads; the panel is simply
+        // where they are set now.
+        config.debug.showParticles = views.particles;
+        config.debug.showGrid = views.grid;
+        scene.showParticles = views.particles;
+        scene.showGrid = views.grid;
+
         config.debug.showPressure = views.pressure;
         config.debug.showCellTypes = views.cellTypes;
         config.debug.showVelocity = views.velocity;

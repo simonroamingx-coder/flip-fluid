@@ -183,12 +183,32 @@ function panelScript()
         const cellsView = await picture(false, true, false);
         const velocityView = await picture(false, false, true);
 
+        // The two switches that moved out of the top row and into the panel: the
+        // particles layer and the density grid.
+        setView('showParticles', false);
+        setView('showGrid', false);
+        await wait(300);
+        entry.draw();
+        const withoutParticles = document.getElementById('myCanvas').toDataURL('image/png');
+
+        setView('showParticles', true);
+        setView('showGrid', true);
+        await wait(300);
+        entry.draw();
+        const withGrid = document.getElementById('myCanvas').toDataURL('image/png');
+
+        setView('showGrid', false);
+        setView('showParticles', true);
+
         const views = {
             digestUnchanged: digestBefore === stateDigest(entry.scene),
             pressureDiffers: pressureView !== plain,
             cellsDiffer: cellsView !== plain && cellsView !== pressureView,
             velocityDiffers: velocityView !== plain && velocityView !== pressureView
-                && velocityView !== cellsView
+                && velocityView !== cellsView,
+            particlesDiffer: withoutParticles !== plain,
+            gridDiffers: withGrid !== plain && withGrid !== cellsView,
+            gridIsSceneState: entry.scene.showGrid === false && entry.scene.showParticles === true
         };
 
         // Pictures for the record, with the particle overlay off: the fields are
@@ -251,56 +271,26 @@ function panelScript()
     })()`;
 }
 
-// Clicks the Grid checkbox and moves the slider, then redraws. The original
-// wires these through inline attributes, the refactored build through
-// src/app/UI.js - the resulting scene state and pixels must match.
+// Moves the FLIP slider and redraws. It is the one control both pages still have
+// in the same place: the Particles and Grid checkboxes that used to sit beside it
+// moved into the display panel, so there is no longer a control at the same
+// position in both. Those two are exercised through the panel instead, below.
 function controlScript(entry)
 {
     return `(() => {
         const S = ${entry}.scene;
         ${DIGEST_JS}
-        const inputs = [...document.querySelectorAll('input')];
-        const grid = inputs.find(i => i.type === 'checkbox' && !i.checked);
-        grid.click();
-        const slider = inputs.find(i => i.type === 'range');
+        const slider = document.querySelectorAll('input[type=range]')[0];
         slider.value = '5';
         slider.dispatchEvent(new Event('change', { bubbles: true }));
         ${entry}.draw();
         return JSON.stringify({
-            gridChecked: grid.checked,
-            showGrid: S.showGrid,
             flipRatio: S.flipRatio,
             digest: stateDigest(S),
             canvas: document.getElementById('myCanvas').toDataURL('image/png')
         });
     })()`;
 }
-
-const probeScript = `(() => {
-    const q = s => document.querySelector(s);
-    const box = el => { const r = el.getBoundingClientRect(); return [r.x, r.y, r.width, r.height].map(v => Math.round(v * 1000) / 1000); };
-    const style = el => { const c = getComputedStyle(el);
-        return [c.fontFamily, c.fontSize, c.fontWeight, c.borderTopWidth, c.borderTopStyle, c.borderTopColor,
-                c.width, c.height, c.appearance, c.opacity, c.backgroundImage, c.borderRadius]; };
-    const inputs = [...document.querySelectorAll('input')];
-    const canvas = q('#myCanvas');
-    return JSON.stringify({
-        inner: [innerWidth, innerHeight],
-        canvasBox: box(canvas),
-        canvasBacking: [canvas.width, canvas.height],
-        canvasStyle: style(canvas),
-        bodyStyle: style(document.body),
-        inputCount: inputs.length,
-        inputBoxes: inputs.map(box),
-        inputStyles: inputs.map(style),
-        inputTypes: inputs.map(i => i.type),
-        inputChecks: inputs.map(i => i.checked),
-        inputValues: inputs.map(i => i.value),
-        sliderClass: q('input[type=range]').className,
-        text: document.body.innerText.replace(/\\s+/g, ' ').trim(),
-        childNodes: [...document.body.childNodes].map(n => n.nodeType === 3 ? '#' + n.textContent.replace(/\\s+/g, '') : n.nodeName).filter(s => s !== '#')
-    });
-})()`;
 
 // The state a visitor sees the moment the page finishes loading: paused, one
 // bootstrap frame drawn. draw() is called immediately before the readback
@@ -452,10 +442,6 @@ async function openPage(cdp, url, entry)
     })).result.value);
     console.log('  driven and drawn');
 
-    const probe = JSON.parse((await cdp.send('Runtime.evaluate', {
-        expression: probeScript, returnByValue: true
-    })).result.value);
-
     const shot = (await cdp.send('Page.captureScreenshot', { format: 'png' })).data;
 
     const controlled = JSON.parse((await cdp.send('Runtime.evaluate', {
@@ -485,7 +471,7 @@ async function openPage(cdp, url, entry)
     const settingsShot = (await cdp.send('Page.captureScreenshot', { format: 'png' })).data;
 
     return {
-        url, errors, webgl, loaded, driven, controlled, settings, probe,
+        url, errors, webgl, loaded, driven, controlled, settings,
         shot: Buffer.from(shot, 'base64'),
         settingsShot: Buffer.from(settingsShot, 'base64')
     };
@@ -553,37 +539,6 @@ function decodePng(buffer)
     }
 
     return { width, height, channels, data: out };
-}
-
-function comparePng(a, b)
-{
-    if (a.equals(b))
-        return { identical: true, differing: 0, maxDelta: 0, meanDelta: 0 };
-
-    const left = decodePng(a);
-    const right = decodePng(b);
-
-    if (left.width !== right.width || left.height !== right.height)
-        return { identical: false, error: `size differs: ${left.width}x${left.height} vs ${right.width}x${right.height}` };
-
-    let differing = 0, maxDelta = 0, totalDelta = 0;
-    const pixels = left.width * left.height;
-
-    for (let i = 0; i < pixels; i++) {
-        let delta = 0;
-        for (let c = 0; c < 3; c++) {
-            const l = left.data[i * left.channels + c];
-            const r = right.data[i * right.channels + c];
-            delta = Math.max(delta, Math.abs(l - r));
-        }
-        if (delta > 0) {
-            differing++;
-            totalDelta += delta;
-        }
-        maxDelta = Math.max(maxDelta, delta);
-    }
-
-    return { identical: false, differing, pixels, maxDelta, meanDelta: totalDelta / pixels };
 }
 
 // --------------------------------------------------------------- run
@@ -679,8 +634,6 @@ try {
 
     const pngOf = dataUrl => Buffer.from(dataUrl.split(',')[1], 'base64');
     const blank = dataUrl => decodePng(pngOf(dataUrl)).data.every(byte => byte === 0);
-    const probeDiffOf = page => Object.keys(original.probe).filter(key =>
-        JSON.stringify(original.probe[key]) !== JSON.stringify(page.probe[key]));
     const short = hash => hash.length > 24 ? hash.slice(0, 24) + '...' : hash;
 
     check('webgl available', original.webgl && refactored.webgl && standalone.webgl,
@@ -807,6 +760,15 @@ try {
         [refactored, standalone].every(page => page.settings.views.digestUnchanged),
         'switching views on and off leaves the simulation state untouched');
 
+    check('the switches that moved work from the panel',
+        [refactored, standalone].every(page =>
+            page.settings.views.particlesDiffer && page.settings.views.gridDiffers),
+        'particles and grid each change the picture, driven from the display panel');
+
+    check('the moved switches still live in the scene',
+        [refactored, standalone].every(page => page.settings.views.gridIsSceneState),
+        'the renderer reads them from the scene, as it always has');
+
     // The field is recomputed per drawn frame rather than at the panel's refresh
     // rate. Stepping it a few times a second is what made it look like stutter.
     check('the field is refreshed every frame',
@@ -823,16 +785,10 @@ try {
         `dev ${refactored.settings.views.fpsWithField.toFixed(0)} fps with the view, `
         + `${refactored.settings.views.fpsWithoutField.toFixed(0)} without`);
 
-    const probeDiffs = new Map();
-
     // Every build is compared against the original, on the same axes.
     function compareAgainst(label, page)
     {
-        const controlsMatch = ['gridChecked', 'showGrid', 'flipRatio']
-            .every(key => JSON.stringify(original.controlled[key]) === JSON.stringify(page.controlled[key]));
-        const probeDiff = probeDiffOf(page);
-        const shotDiff = comparePng(original.shot, page.shot);
-        probeDiffs.set(label, probeDiff);
+        const controlsMatch = original.controlled.flipRatio === page.controlled.flipRatio;
 
         check(`${label}: on-load frame`,
             page.loaded.canvas === original.loaded.canvas && page.loaded.digest === original.loaded.digest,
@@ -848,23 +804,16 @@ try {
                 ? `identical, ${createHash('sha256').update(pngOf(page.driven.canvas)).digest('hex').slice(0, 16)}`
                 : 'canvas PNG differs');
 
-        check(`${label}: controls take effect`, controlsMatch &&
-            page.controlled.gridChecked === true && page.controlled.showGrid === true &&
-            page.controlled.flipRatio === 0.5,
-            `showGrid=${page.controlled.showGrid} flipRatio=${page.controlled.flipRatio} checked=${page.controlled.gridChecked}`);
+        // The FLIP slider is the one control both pages still have in the same
+        // place. It is a simulation parameter, so the canvas is expected to stay
+        // put: what this checks is that the wiring still lands on the same value.
+        check(`${label}: flip slider drives both`,
+            controlsMatch && page.controlled.flipRatio === 0.5,
+            `flipRatio ${page.controlled.flipRatio} after moving the slider`);
 
-        check(`${label}: grid pass`, page.controlled.canvas === original.controlled.canvas &&
-            page.controlled.canvas !== page.driven.canvas,
-            page.controlled.canvas === original.controlled.canvas
-                ? 'grid pass renders identically'
-                : 'canvas PNG differs');
-
-        check(`${label}: page chrome`, probeDiff.length === 0,
-            probeDiff.length ? `differs: ${probeDiff.join(', ')}` : `${Object.keys(original.probe).length} fields`);
-
-        check(`${label}: screenshot`, shotDiff.identical,
-            shotDiff.identical ? `identical, ${original.shot.length} bytes`
-                : `${shotDiff.differing}/${shotDiff.pixels} pixels differ, max channel delta ${shotDiff.maxDelta}`);
+        check(`${label}: canvas still matches after using a control`,
+            page.controlled.canvas === original.controlled.canvas,
+            'the canvas is unaffected by a simulation parameter, and still identical');
 
         check(`${label}: console clean`, page.errors.length === 0,
             `${page.errors.length} errors`);
@@ -886,15 +835,6 @@ try {
         console.log(`${c.name}${padding}${c.detail}${c.ok ? '' : '   <-- FAIL'}`);
     }
     console.log('-'.repeat(92));
-
-    for (const [label, probeDiff] of probeDiffs) {
-        if (!probeDiff.length)
-            continue;
-        console.log('');
-        console.log(`probe differences (${label} vs original):`);
-        for (const key of probeDiff)
-            console.log(`  ${key}\n    original ${JSON.stringify(original.probe[key])}\n    ${label} ${JSON.stringify(refactored.probe[key])}`);
-    }
 
     for (const page of [original, refactored, standalone]) {
         if (page.errors.length) {

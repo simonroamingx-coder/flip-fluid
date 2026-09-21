@@ -5,6 +5,27 @@ version number, the tag and the reasoning live in one place.
 
 Cutting a release is described in [WORKFLOW.md](WORKFLOW.md).
 
+## v1.2.0 - Display panel, and a release in two steps
+
+**Ready to release.**
+
+- The `Particles` and `Grid` checkboxes moved off the top row and into the display
+  panel, so every view switch is in one place, which is what the specification
+  asked for. They remain scene state - that is what the renderer reads - and they
+  work with debug switched off; the three debug views are disabled until it is on.
+  The top row is now solver options only.
+- `tools/release.mjs` is two halves. `--prepare` does everything that needs no
+  network: bump, rebuild, verify, commit, tag. `--publish` does everything that
+  does: push, release. A push that fails used to leave the tool unable to finish
+  that release at all, because the tag existed and the version checks refused to
+  run again - which is exactly what happened when v1.1.0 was published, and had to
+  be finished by hand.
+- The browser harness no longer compares the page's DOM or its full-page
+  screenshot against the original. That comparison belonged to the refactor and
+  cannot survive a deliberate UI change; appendix C4 of the specification called
+  this, and this is the release where it happened. The canvas, the simulation
+  state and the control wiring are still compared exactly.
+
 ## v1.1.0 - Settings and debug panel
 
 **Released 2026-09-21.** Specification: [docs/v1.1.0-settings-debug-panel.md](docs/v1.1.0-settings-debug-panel.md)

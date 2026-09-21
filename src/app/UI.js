@@ -5,11 +5,22 @@
 // its scene flag on click, and the slider sets flipRatio on change - it is just
 // attached here instead of in the markup.
 
+// The two checkboxes left on the top row, which are solver options rather than
+// view options.
 export const TOGGLES = [
-    { id: 'showParticles', flag: 'showParticles' },
-    { id: 'showGrid', flag: 'showGrid' },
     { id: 'compensateDrift', flag: 'compensateDrift' },
     { id: 'separateParticles', flag: 'separateParticles' }
+];
+
+// Every view switch, in the order the specification lists them. The first two are
+// plain rendering options that work with debug off; the last three are collected
+// by the debug layer and are disabled until it is switched on.
+export const VIEW_TOGGLES = [
+    { id: 'showParticles', key: 'particles', flag: 'showParticles', needsDebug: false },
+    { id: 'showGrid', key: 'grid', flag: 'showGrid', needsDebug: false },
+    { id: 'showPressure', key: 'pressure', flag: 'showPressure', needsDebug: true },
+    { id: 'showCellTypes', key: 'cellTypes', flag: 'showCellTypes', needsDebug: true },
+    { id: 'showVelocity', key: 'velocity', flag: 'showVelocity', needsDebug: true }
 ];
 
 export function attachControls(doc, scene)
@@ -96,12 +107,6 @@ const DEBUG_ROWS = [
     { key: 'memoryBytes', label: 'Memory', format: value => (value / 1048576).toFixed(1) + ' MB' }
 ];
 
-const DEBUG_VIEWS = [
-    { id: 'showPressure', key: 'pressure' },
-    { id: 'showCellTypes', key: 'cellTypes' },
-    { id: 'showVelocity', key: 'velocity' }
-];
-
 export function attachDebugPanel(doc, { enabled, views, onToggle, onViews })
 {
     const checkbox = doc.getElementById('debugEnabled');
@@ -140,12 +145,14 @@ export function attachDebugPanel(doc, { enabled, views, onToggle, onViews })
         cells.set(row.key, { format: row.format, element: value });
     }
 
-    for (const view of DEBUG_VIEWS) {
+    for (const view of VIEW_TOGGLES) {
         const box = doc.getElementById(view.id);
         if (!box)
             continue;
 
         box.checked = Boolean(views && views[view.key]);
+        if (view.needsDebug)
+            box.disabled = !enabled;
         box.addEventListener('change', () => {
             const next = {};
             for (const [key, element] of viewBoxes)
@@ -174,6 +181,15 @@ export function attachDebugPanel(doc, { enabled, views, onToggle, onViews })
             body.hidden = !value;
             if (viewBox)
                 viewBox.hidden = !value;
+
+            // The debug views go with the debug switch; the view switches that do
+            // not need it stay usable.
+            for (const view of VIEW_TOGGLES) {
+                const box = viewBoxes.get(view.key);
+                if (box && view.needsDebug)
+                    box.disabled = !value;
+            }
+
             if (!value) {
                 for (const cell of cells.values())
                     cell.element.textContent = cell.format(0);
