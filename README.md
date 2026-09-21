@@ -217,7 +217,9 @@ The page screenshot matching matters here beyond the canvas: the generated
 stylesheet, so a byte-identical screenshot also proves the inlining did not
 disturb layout.
 
-Screenshots land in `test/artifacts/`.
+Screenshots land in `test/artifacts/`, which is generated rather than tracked:
+they change on every run, since the frame rate shown in the debug panel is part
+of the picture.
 
 One note for anyone re-running the browser harness: headless Chrome needs
 `--no-sandbox --disable-gpu-sandbox` here, otherwise its GPU process crashes on

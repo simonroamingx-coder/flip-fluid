@@ -7,3 +7,9 @@ Thumbs.db
 *.log
 test/serve.log
 test/serve.log.err
+
+# Screenshots from the browser harness. They are evidence you can reproduce with
+# `node test/parity-browser.mjs`, not source: they change on every run - the frame
+# rate in the debug panel is part of the picture - so tracking them would put a
+# little noise into every commit that follows a full verification.
+test/artifacts/
