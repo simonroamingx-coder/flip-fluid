@@ -74,6 +74,20 @@ body {
 #particleSlider {
 	width: 230px;
 }
+#settings .field .slider,
+#debug .field .slider {
+	width: 120px;
+}
+#debug select {
+	font-size: 12px;
+}
+#debug input[type=color] {
+	width: 40px;
+	height: 20px;
+	padding: 0;
+	border: 1px solid #555;
+	background: none;
+}
 #particleActual {
 	margin-top: 8px;
 	color: #9a9a9a;

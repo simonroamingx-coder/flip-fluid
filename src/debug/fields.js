@@ -158,3 +158,93 @@ export function writeVelocityVectors(fluid, vertices, options = VELOCITY)
 
     return vectors;
 }
+
+// ------------------------------------------------------- particle colour modes
+
+// What the particles are coloured by. Density is the solver's own scheme, which
+// stays untouched so the default view is exactly what it always was; the other
+// three are computed here from the solver's arrays and drawn instead of it.
+export const PARTICLE_MODES = ['density', 'speed', 'pressure', 'vorticity'];
+
+export function createParticleRange()
+{
+    return { peak: 0 };
+}
+
+// A ramp rather than an intensity, because these are drawn as small dots: red at
+// full brightness next to red at half is hard to tell apart at four pixels,
+// whereas blue through cyan and yellow to red is not.
+const RAMP = [
+    [40, 60, 200],
+    [40, 200, 220],
+    [235, 215, 70],
+    [240, 80, 40]
+];
+
+// Written as 0..1, not 0..255: this goes into a Float32 buffer the shader reads as
+// a colour, unlike the cell views, which are Uint8 textures. Writing 0..255 here
+// makes every particle white, and every mode look the same.
+function writeRamp(value, colors, offset)
+{
+    const scaled = Math.max(0, Math.min(1, value)) * (RAMP.length - 1);
+    const index = Math.min(RAMP.length - 2, Math.floor(scaled));
+    const t = scaled - index;
+
+    for (let channel = 0; channel < 3; channel++) {
+        const from = RAMP[index][channel] / 255;
+        const to = RAMP[index + 1][channel] / 255;
+        colors[offset + channel] = from + (to - from) * t;
+    }
+}
+
+// The curl of the velocity field at a cell, from the same face velocities the
+// solver uses. Positive and negative mean opposite directions of rotation; only
+// the size is shown, the way the pressure view settled on magnitude too.
+function vorticityAt(fluid, xi, yi)
+{
+    const n = fluid.fNumY;
+    const x = Math.min(Math.max(xi, 1), fluid.fNumX - 2);
+    const y = Math.min(Math.max(yi, 1), fluid.fNumY - 2);
+    const twoH = 2 * fluid.h;
+
+    return (fluid.v[(x + 1) * n + y] - fluid.v[(x - 1) * n + y]) / twoH
+        - (fluid.u[x * n + y + 1] - fluid.u[x * n + y - 1]) / twoH;
+}
+
+// One colour per particle for the chosen mode, into a buffer the renderer uploads
+// in place of the solver's particleColor. The peak is smoothed, so the picture does
+// not strobe as the range of the quantity moves.
+export function writeParticleColors(fluid, colors, mode, range, scratch)
+{
+    const n = fluid.fNumY;
+    const h1 = fluid.fInvSpacing;
+    const values = scratch;
+    let peak = 0;
+
+    for (let i = 0; i < fluid.numParticles; i++) {
+        let value;
+
+        if (mode === 'speed') {
+            value = Math.hypot(fluid.particleVel[2 * i], fluid.particleVel[2 * i + 1]);
+        } else {
+            const xi = Math.min(fluid.fNumX - 1, Math.max(0, Math.floor(fluid.particlePos[2 * i] * h1)));
+            const yi = Math.min(fluid.fNumY - 1, Math.max(0, Math.floor(fluid.particlePos[2 * i + 1] * h1)));
+            value = mode === 'pressure'
+                ? Math.abs(fluid.p[xi * n + yi])
+                : Math.abs(vorticityAt(fluid, xi, yi));
+        }
+
+        values[i] = value;
+        if (value > peak)
+            peak = value;
+    }
+
+    range.peak += (peak - range.peak) * (peak > range.peak ? 0.25 : 0.01);
+    const scale = range.peak > 0 ? 1 / range.peak : 0;
+
+    for (let i = 0; i < fluid.numParticles; i++) {
+        // A square root, so the middle of the range is not squeezed into the bottom
+        // of the ramp: these quantities are as skewed as the solver's speeds are.
+        writeRamp(Math.sqrt(values[i] * scale), colors, 3 * i);
+    }
+}

@@ -11,8 +11,9 @@
 
 import { AIR_CELL, FLUID_CELL, SOLID_CELL } from '../src/core/constants.js';
 import {
-    FLOATS_PER_VECTOR, VELOCITY, VERTICES_PER_VECTOR,
-    createPressureRange, writeCellTypes, writePressureColors, writeVelocityVectors
+    FLOATS_PER_VECTOR, PARTICLE_MODES, VELOCITY, VERTICES_PER_VECTOR,
+    createParticleRange, createPressureRange, writeCellTypes, writeParticleColors,
+    writePressureColors, writeVelocityVectors
 } from '../src/debug/fields.js';
 import { domainForViewport, loadRefactored, snapshot, stepRefactored } from './lib/harness.mjs';
 import { Renderer } from '../src/render/Renderer.js';
@@ -44,6 +45,12 @@ const cellAt = (xi, yi) => xi * fluid.fNumY + yi;
 const before = snapshot(fluid, build.scene);
 writePressureColors(fluid, colors, range);
 writeCellTypes(fluid, colors);
+const particleColors = new Float32Array(3 * fluid.maxParticles);
+const particleScratch = new Float32Array(fluid.maxParticles);
+const particleRange = createParticleRange();
+writeParticleColors(fluid, particleColors, 'speed', particleRange, particleScratch);
+writeParticleColors(fluid, particleColors, 'pressure', particleRange, particleScratch);
+writeParticleColors(fluid, particleColors, 'vorticity', particleRange, particleScratch);
 const after = snapshot(fluid, build.scene);
 
 const changed = Object.keys(before).filter(key => before[key] !== after[key]);
@@ -260,6 +267,113 @@ check('the renderer draws one segment per vector',
 check('the renderer uploads the whole buffer',
     Boolean(calls.upload) && calls.upload.length === 3 * FLOATS_PER_VECTOR,
     `uploaded ${calls.upload ? calls.upload.length : '?'} floats for 3 vectors`);
+
+// ------------------------------------------------------- particle colour modes
+
+const modes = PARTICLE_MODES.filter(mode => mode !== 'density');
+const colourings = new Map();
+const problems = [];
+
+for (const mode of modes) {
+    const range = createParticleRange();
+    const written = new Float32Array(3 * fluid.maxParticles);
+
+    // Let the smoothed scale settle the way it would over a second of frames.
+    for (let frame = 0; frame < 40; frame++)
+        writeParticleColors(fluid, written, mode, range, particleScratch);
+
+    let lowest = Infinity;
+    let highest = -Infinity;
+    let lowestColor = null;
+    let highestColor = null;
+
+    for (let i = 0; i < fluid.numParticles; i++) {
+        const red = written[3 * i];
+        const green = written[3 * i + 1];
+        const blue = written[3 * i + 2];
+
+        // 0..1, the range the shader reads: writing 0..255 here is what made every
+        // particle white and every mode look identical.
+        if (red > 1 || green > 1 || blue > 1 || red < 0 || green < 0 || blue < 0)
+            problems.push(`${mode}: a colour out of range`);
+
+        const value = mode === 'speed'
+            ? Math.hypot(fluid.particleVel[2 * i], fluid.particleVel[2 * i + 1])
+            : null;
+
+        if (value !== null) {
+            if (value < lowest) { lowest = value; lowestColor = [red, green, blue]; }
+            if (value > highest) { highest = value; highestColor = [red, green, blue]; }
+        }
+    }
+
+    colourings.set(mode, written);
+
+    // The extremes of the quantity have to land at the ends of the ramp: blue at
+    // the bottom, red at the top. That is what "coloured by" has to mean.
+    if (mode === 'speed') {
+        if (!(lowestColor[2] > lowestColor[0]))
+            problems.push(`${mode}: the slowest particle is not at the blue end`);
+        if (!(highestColor[0] > highestColor[2]))
+            problems.push(`${mode}: the fastest particle is not at the red end`);
+    }
+}
+
+check('every colour mode writes a colour per particle', problems.length === 0,
+    problems.length ? problems.join('; ')
+        : `${modes.join(', ')} - all ${fluid.numParticles} particles, all within the ramp`);
+
+const distinct = new Set(modes.map(mode => {
+    const written = colourings.get(mode);
+    let sum = 0;
+    for (let i = 0; i < written.length; i += 7)
+        sum = (sum * 31 + written[i]) % 1e9;
+    return sum;
+}));
+
+check('the modes colour differently', distinct.size === modes.length,
+    `${modes.length} modes, ${distinct.size} distinct colourings`);
+
+// ---------------------------------------------------------- the disc appearance
+
+const discCalls = { color: null, alpha: null, blending: false, blendingAtDraw: null };
+const discGl = {
+    ARRAY_BUFFER: 1, ELEMENT_ARRAY_BUFFER: 2, FLOAT: 3, UNSIGNED_SHORT: 4,
+    TRIANGLES: 5, DEPTH_BUFFER_BIT: 6, BLEND: 7, SRC_ALPHA: 8, ONE_MINUS_SRC_ALPHA: 9,
+    clear() {}, useProgram() {}, uniform2f() {}, bindBuffer() {},
+    vertexAttribPointer() {}, enableVertexAttribArray() {}, disableVertexAttribArray() {},
+    drawElements() { discCalls.blendingAtDraw = discCalls.blending; },
+    uniform3f(location, r, g, b) { if (location === 'color') discCalls.color = [r, g, b]; },
+    uniform1f(location, value) { if (location === 'alpha') discCalls.alpha = value; },
+    enable(cap) { discCalls.blending = cap === 7; },
+    disable(cap) { if (cap === 7) discCalls.blending = false; },
+    blendFunc() {}
+};
+
+const discRenderer = new Renderer(discGl, { width: 100, height: 100 }, 5, 3);
+discRenderer.meshShader = {};
+discRenderer.meshLocations = {
+    // Named sentinels, because the recorder has to tell one uniform from another:
+    // the disc's size is also a single float, and it was being read as the opacity.
+    uniforms: { domainSize: 'domainSize', color: 'color', translation: 'translation', scale: 'scale', alpha: 'alpha' },
+    attributes: { attrPosition: 0 }
+};
+discRenderer.diskVertBuffer = {};
+discRenderer.diskIdBuffer = {};
+
+discRenderer.drawObstacle(build.scene, fluid, { color: [0, 0.25, 1], opacity: 1 });
+const opaque = { ...discCalls };
+discRenderer.drawObstacle(build.scene, fluid, { color: [0, 0.25, 1], opacity: 0.4 });
+const faint = { ...discCalls };
+
+check('the disc takes the colour and opacity it is given',
+    opaque.color[2] === 1 && opaque.color[0] === 0 && opaque.alpha === 1
+    && faint.alpha === 0.4,
+    `opaque ${JSON.stringify(opaque.color)} at alpha ${opaque.alpha}, faint at alpha ${faint.alpha}`);
+
+check('blending only when the disc is transparent',
+    !opaque.blendingAtDraw && faint.blendingAtDraw === true,
+    'an opaque disc draws exactly as it always did');
 
 // ------------------------------------------------------------------- report
 

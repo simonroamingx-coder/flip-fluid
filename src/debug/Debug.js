@@ -11,7 +11,8 @@
 
 import { FLUID_CELL } from '../core/constants.js';
 import {
-    VELOCITY, createPressureRange, writeCellTypes, writePressureColors, writeVelocityVectors
+    VELOCITY, createParticleRange, createPressureRange, writeCellTypes, writeParticleColors,
+    writePressureColors, writeVelocityVectors
 } from './fields.js';
 
 export function createRuntimeStats()
@@ -79,7 +80,11 @@ export function createDebug()
     let cellTypeColors = null;
     let velocityVertices = null;
     let velocityCount = 0;
+    let particleColors = null;
+    let particleScratch = null;
     const pressureRange = createPressureRange();
+    const particleRange = createParticleRange();
+    let particleMode = 'density';
     let fieldUpdates = 0;
 
     function zeroTimings()
@@ -93,6 +98,7 @@ export function createDebug()
         Object.assign(stats, createRuntimeStats());
         zeroTimings();
         pressureRange.peak = 0;
+        particleRange.peak = 0;
         fieldUpdates = 0;
         previousFrame = 0;
         smoothedFrameTime = 0;
@@ -167,6 +173,9 @@ export function createDebug()
         const samples = Math.ceil(fluid.fNumX / VELOCITY.stride)
             * Math.ceil(fluid.fNumY / VELOCITY.stride);
         velocityVertices = new Float32Array(4 * samples);   // two vertices per vector
+
+        particleColors = new Float32Array(3 * fluid.maxParticles);
+        particleScratch = new Float32Array(fluid.maxParticles);
     }
 
     // Recomputes the colour buffer for whichever view is on. This runs every
@@ -180,20 +189,34 @@ export function createDebug()
     function updateField(scene)
     {
         const fluid = scene && scene.fluid;
-        if (!fluid || !enabled || (!views.pressure && !views.cellTypes && !views.velocity))
+        if (!fluid)
             return;
 
-        fluid.classifyCells();
+        // The colour mode is a view option and works with debug off; the fields and
+        // vectors are debug views and need it on.
+        const wantsDebugView = enabled && (views.pressure || views.cellTypes || views.velocity);
+        if (!wantsDebugView && particleMode === 'density')
+            return;
+
         ensureBuffers(fluid);
 
-        if (views.pressure)
-            writePressureColors(fluid, pressureColors, pressureRange);
-        if (views.cellTypes)
-            writeCellTypes(fluid, cellTypeColors);
+        if (wantsDebugView) {
+            fluid.classifyCells();
 
-        velocityCount = views.velocity
-            ? writeVelocityVectors(fluid, velocityVertices)
-            : 0;
+            if (views.pressure)
+                writePressureColors(fluid, pressureColors, pressureRange);
+            if (views.cellTypes)
+                writeCellTypes(fluid, cellTypeColors);
+
+            velocityCount = views.velocity
+                ? writeVelocityVectors(fluid, velocityVertices)
+                : 0;
+        }
+
+        // Density is the solver's own scheme and stays untouched: the renderer falls
+        // back to fluid.particleColor for it.
+        if (particleMode !== 'density')
+            writeParticleColors(fluid, particleColors, particleMode, particleRange, particleScratch);
 
         fieldUpdates++;
     }
@@ -209,18 +232,24 @@ export function createDebug()
 
         const view = {};
 
-        // At most one colour field: pressure and cell types are both the whole
-        // grid painted, so showing both would just hide one behind the other.
-        const colors = views.pressure ? pressureColors : views.cellTypes ? cellTypeColors : null;
-        if (colors && colors.length === 3 * fluid.fNumCells)
-            view.texture = colors;
+        if (enabled) {
+            // At most one colour field: pressure and cell types are both the whole
+            // grid painted, so showing both would just hide one behind the other.
+            const colors = views.pressure ? pressureColors : views.cellTypes ? cellTypeColors : null;
+            if (colors && colors.length === 3 * fluid.fNumCells)
+                view.texture = colors;
 
-        // Vectors are lines over the top of whatever field is showing, which is
-        // the useful combination rather than a conflict.
-        if (views.velocity && velocityCount && velocityVertices)
-            view.lines = { vertices: velocityVertices, count: velocityCount };
+            // Vectors are lines over the top of whatever field is showing, which is
+            // the useful combination rather than a conflict.
+            if (views.velocity && velocityCount && velocityVertices)
+                view.lines = { vertices: velocityVertices, count: velocityCount };
+        }
 
-        return view.texture || view.lines ? view : null;
+        if (particleMode !== 'density'
+            && particleColors && particleColors.length === 3 * fluid.maxParticles)
+            view.particleColors = particleColors;
+
+        return Object.keys(view).length ? view : null;
     }
 
     return {
@@ -237,6 +266,17 @@ export function createDebug()
         get fieldUpdates()
         {
             return fieldUpdates;
+        },
+
+        get particleMode()
+        {
+            return particleMode;
+        },
+
+        setParticleMode(mode)
+        {
+            particleMode = mode;
+            particleRange.peak = 0;
         },
 
         setViews(value)

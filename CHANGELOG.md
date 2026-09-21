@@ -25,6 +25,20 @@ Cutting a release is described in [WORKFLOW.md](WORKFLOW.md).
   cannot survive a deliberate UI change; appendix C4 of the specification called
   this, and this is the release where it happened. The canvas, the simulation
   state and the control wiring are still compared exactly.
+- **Particle colour modes**: density (the solver's own scheme, unchanged), speed,
+  pressure and vorticity, the last three read out of the solver's arrays and
+  drawn instead of them. The ramp is normalised to 0..1 - written as 0..255 it
+  makes every particle white, which the browser check caught.
+- **The disc takes a colour, an opacity and a size.** Colour and opacity are
+  appearance; the size is a simulation parameter, because the disc takes the
+  velocity of every particle inside its radius - twice the radius takes four
+  times the particles, which is what the check measures.
+
+Two things about the original came out of building this, both recorded in
+appendix C of the specification: its particle colours are a packing-density
+field rather than anything to do with motion, and its `setObstacle` calls
+`f.numX` and `f.numY`, which the solver does not define, so the disc has never
+been stamped into the grid. The port is faithful, which is why parity passes.
 
 ## v1.1.0 - Settings and debug panel
 

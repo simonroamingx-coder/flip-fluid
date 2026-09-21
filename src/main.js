@@ -8,10 +8,11 @@ import { setupScene } from './core/scenarios.js';
 import { setObstacle } from './core/obstacle.js';
 import { createConfig, clampParticleCount, PARTICLES } from './core/config.js';
 import { createDebug } from './debug/Debug.js';
+import { hexToRgb } from './utils/color.js';
 import { Renderer } from './render/Renderer.js';
 import { setupCanvas } from './app/canvas.js';
 import { attachInput } from './app/Input.js';
-import { attachControls, attachSettings, attachDebugPanel } from './app/UI.js';
+import { attachControls, attachSettings, attachDisplayPanel } from './app/UI.js';
 import { simulateOnce, startLoop } from './app/loop.js';
 import { VERSION } from './version.js';
 
@@ -76,7 +77,7 @@ attachSettings(document, {
     onApply: applyParticleCount
 });
 
-const debugPanel = attachDebugPanel(document, {
+const debugPanel = attachDisplayPanel(document, {
     enabled: config.debug.enabled,
     views: {
         particles: config.debug.showParticles,
@@ -85,6 +86,8 @@ const debugPanel = attachDebugPanel(document, {
         cellTypes: config.debug.showCellTypes,
         velocity: config.debug.showVelocity
     },
+    particleColor: config.debug.particleColor,
+    obstacle: config.obstacle,
     onToggle: value => {
         config.debug.enabled = value;
         debug.setEnabled(value);
@@ -120,6 +123,23 @@ const debugPanel = attachDebugPanel(document, {
         config.debug.showVelocity = views.velocity;
         debug.setViews(views);
         debug.updateField(scene);
+    },
+    onParticleColor: mode => {
+        config.debug.particleColor = mode;
+        debug.setParticleMode(mode);
+        debug.updateField(scene);
+    },
+    onObstacle: appearance => {
+        config.obstacle.color = appearance.color;
+        config.obstacle.opacity = appearance.opacity;
+
+        // The radius is a simulation parameter: the solver stamps the disc into the
+        // solid cells, so a new size means re-stamping and a different flow.
+        if (appearance.radius !== config.obstacle.radius) {
+            config.obstacle.radius = appearance.radius;
+            scene.obstacleRadius = appearance.radius;
+            setObstacle(scene, scene.obstacleX, scene.obstacleY, true);
+        }
     }
 });
 
@@ -128,7 +148,11 @@ const debugPanel = attachDebugPanel(document, {
 // and a test that draws differently from the app tests the wrong thing.
 function drawFrame()
 {
-    renderer.draw(scene, debug.fieldView(scene));
+    renderer.draw(scene, debug.fieldView(scene), {
+        color: hexToRgb(config.obstacle.color),
+        opacity: config.obstacle.opacity,
+        radius: config.obstacle.radius
+    });
 }
 
 // Shown in the corner of the page, so a screenshot or a running sim says which

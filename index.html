@@ -97,6 +97,20 @@ body {
 #particleSlider {
 	width: 230px;
 }
+#settings .field .slider,
+#debug .field .slider {
+	width: 120px;
+}
+#debug select {
+	font-size: 12px;
+}
+#debug input[type=color] {
+	width: 40px;
+	height: 20px;
+	padding: 0;
+	border: 1px solid #555;
+	background: none;
+}
 #particleActual {
 	margin-top: 8px;
 	color: #9a9a9a;
@@ -213,6 +227,27 @@ body {
 				<label class = "toggle"><input type = "checkbox" id = "showPressure"> Pressure</label>
 				<label class = "toggle"><input type = "checkbox" id = "showCellTypes"> Cell Types</label>
 				<label class = "toggle"><input type = "checkbox" id = "showVelocity"> Velocity</label>
+			</div>
+			<div class = "field">
+				<label for = "particleColor">Particle Colour</label>
+				<select id = "particleColor">
+					<option value = "density">Density</option>
+					<option value = "speed">Speed</option>
+					<option value = "pressure">Pressure</option>
+					<option value = "vorticity">Vorticity</option>
+				</select>
+			</div>
+			<div class = "field">
+				<label for = "obstacleColor">Disc Colour</label>
+				<input type = "color" id = "obstacleColor" value = "#ff0000">
+			</div>
+			<div class = "field">
+				<label for = "obstacleOpacity">Disc Opacity</label>
+				<input type = "range" id = "obstacleOpacity" class = "slider" min = "0.1" max = "1" step = "0.05" value = "1">
+			</div>
+			<div class = "field">
+				<label for = "obstacleSize">Disc Size</label>
+				<input type = "range" id = "obstacleSize" class = "slider" min = "0.05" max = "0.5" step = "0.01" value = "0.15">
 			</div>
 			<div id = "debugStats" hidden></div>
 		</div>
@@ -1113,7 +1148,20 @@ function createConfig()
             showGrid: false,
             showPressure: false,
             showCellTypes: false,
-            showVelocity: false
+            showVelocity: false,
+
+            // What the particles are coloured by. Density is the solver's own
+            // scheme; the others are read out of the solver and drawn instead.
+            particleColor: 'density'
+        },
+
+        // How the disc is drawn. Its radius is a simulation parameter rather than
+        // an appearance one - the solver stamps the disc into the solid cells - so
+        // changing it re-stamps, and changes how the fluid behaves.
+        obstacle: {
+            color: '#ff0000',
+            opacity: 1,
+            radius: 0.15
         }
     };
 }
@@ -1291,6 +1339,96 @@ function writeVelocityVectors(fluid, vertices, options = VELOCITY)
     return vectors;
 }
 
+// ------------------------------------------------------- particle colour modes
+
+// What the particles are coloured by. Density is the solver's own scheme, which
+// stays untouched so the default view is exactly what it always was; the other
+// three are computed here from the solver's arrays and drawn instead of it.
+const PARTICLE_MODES = ['density', 'speed', 'pressure', 'vorticity'];
+
+function createParticleRange()
+{
+    return { peak: 0 };
+}
+
+// A ramp rather than an intensity, because these are drawn as small dots: red at
+// full brightness next to red at half is hard to tell apart at four pixels,
+// whereas blue through cyan and yellow to red is not.
+const RAMP = [
+    [40, 60, 200],
+    [40, 200, 220],
+    [235, 215, 70],
+    [240, 80, 40]
+];
+
+// Written as 0..1, not 0..255: this goes into a Float32 buffer the shader reads as
+// a colour, unlike the cell views, which are Uint8 textures. Writing 0..255 here
+// makes every particle white, and every mode look the same.
+function writeRamp(value, colors, offset)
+{
+    const scaled = Math.max(0, Math.min(1, value)) * (RAMP.length - 1);
+    const index = Math.min(RAMP.length - 2, Math.floor(scaled));
+    const t = scaled - index;
+
+    for (let channel = 0; channel < 3; channel++) {
+        const from = RAMP[index][channel] / 255;
+        const to = RAMP[index + 1][channel] / 255;
+        colors[offset + channel] = from + (to - from) * t;
+    }
+}
+
+// The curl of the velocity field at a cell, from the same face velocities the
+// solver uses. Positive and negative mean opposite directions of rotation; only
+// the size is shown, the way the pressure view settled on magnitude too.
+function vorticityAt(fluid, xi, yi)
+{
+    const n = fluid.fNumY;
+    const x = Math.min(Math.max(xi, 1), fluid.fNumX - 2);
+    const y = Math.min(Math.max(yi, 1), fluid.fNumY - 2);
+    const twoH = 2 * fluid.h;
+
+    return (fluid.v[(x + 1) * n + y] - fluid.v[(x - 1) * n + y]) / twoH
+        - (fluid.u[x * n + y + 1] - fluid.u[x * n + y - 1]) / twoH;
+}
+
+// One colour per particle for the chosen mode, into a buffer the renderer uploads
+// in place of the solver's particleColor. The peak is smoothed, so the picture does
+// not strobe as the range of the quantity moves.
+function writeParticleColors(fluid, colors, mode, range, scratch)
+{
+    const n = fluid.fNumY;
+    const h1 = fluid.fInvSpacing;
+    const values = scratch;
+    let peak = 0;
+
+    for (let i = 0; i < fluid.numParticles; i++) {
+        let value;
+
+        if (mode === 'speed') {
+            value = Math.hypot(fluid.particleVel[2 * i], fluid.particleVel[2 * i + 1]);
+        } else {
+            const xi = Math.min(fluid.fNumX - 1, Math.max(0, Math.floor(fluid.particlePos[2 * i] * h1)));
+            const yi = Math.min(fluid.fNumY - 1, Math.max(0, Math.floor(fluid.particlePos[2 * i + 1] * h1)));
+            value = mode === 'pressure'
+                ? Math.abs(fluid.p[xi * n + yi])
+                : Math.abs(vorticityAt(fluid, xi, yi));
+        }
+
+        values[i] = value;
+        if (value > peak)
+            peak = value;
+    }
+
+    range.peak += (peak - range.peak) * (peak > range.peak ? 0.25 : 0.01);
+    const scale = range.peak > 0 ? 1 / range.peak : 0;
+
+    for (let i = 0; i < fluid.numParticles; i++) {
+        // A square root, so the middle of the range is not squeezed into the bottom
+        // of the ramp: these quantities are as skewed as the solver's speeds are.
+        writeRamp(Math.sqrt(values[i] * scale), colors, 3 * i);
+    }
+}
+
 	__exports.createPressureRange = createPressureRange;
 	__exports.writePressureColors = writePressureColors;
 	__exports.writeCellTypes = writeCellTypes;
@@ -1299,6 +1437,9 @@ function writeVelocityVectors(fluid, vertices, options = VELOCITY)
 	__exports.FLOATS_PER_VERTEX = FLOATS_PER_VERTEX;
 	__exports.FLOATS_PER_VECTOR = FLOATS_PER_VECTOR;
 	__exports.writeVelocityVectors = writeVelocityVectors;
+	__exports.PARTICLE_MODES = PARTICLE_MODES;
+	__exports.createParticleRange = createParticleRange;
+	__exports.writeParticleColors = writeParticleColors;
 };
 
 __mods["src/debug/Debug.js"] = function (__exports, __req) {
@@ -1315,7 +1456,7 @@ __mods["src/debug/Debug.js"] = function (__exports, __req) {
 // The panel formats what is here. It does not compute anything.
 
 const { FLUID_CELL } = __req("src/core/constants.js");
-const { VELOCITY, createPressureRange, writeCellTypes, writePressureColors, writeVelocityVectors } = __req("src/debug/fields.js");
+const { VELOCITY, createParticleRange, createPressureRange, writeCellTypes, writeParticleColors, writePressureColors, writeVelocityVectors } = __req("src/debug/fields.js");
 
 function createRuntimeStats()
 {
@@ -1382,7 +1523,11 @@ function createDebug()
     let cellTypeColors = null;
     let velocityVertices = null;
     let velocityCount = 0;
+    let particleColors = null;
+    let particleScratch = null;
     const pressureRange = createPressureRange();
+    const particleRange = createParticleRange();
+    let particleMode = 'density';
     let fieldUpdates = 0;
 
     function zeroTimings()
@@ -1396,6 +1541,7 @@ function createDebug()
         Object.assign(stats, createRuntimeStats());
         zeroTimings();
         pressureRange.peak = 0;
+        particleRange.peak = 0;
         fieldUpdates = 0;
         previousFrame = 0;
         smoothedFrameTime = 0;
@@ -1470,6 +1616,9 @@ function createDebug()
         const samples = Math.ceil(fluid.fNumX / VELOCITY.stride)
             * Math.ceil(fluid.fNumY / VELOCITY.stride);
         velocityVertices = new Float32Array(4 * samples);   // two vertices per vector
+
+        particleColors = new Float32Array(3 * fluid.maxParticles);
+        particleScratch = new Float32Array(fluid.maxParticles);
     }
 
     // Recomputes the colour buffer for whichever view is on. This runs every
@@ -1483,20 +1632,34 @@ function createDebug()
     function updateField(scene)
     {
         const fluid = scene && scene.fluid;
-        if (!fluid || !enabled || (!views.pressure && !views.cellTypes && !views.velocity))
+        if (!fluid)
             return;
 
-        fluid.classifyCells();
+        // The colour mode is a view option and works with debug off; the fields and
+        // vectors are debug views and need it on.
+        const wantsDebugView = enabled && (views.pressure || views.cellTypes || views.velocity);
+        if (!wantsDebugView && particleMode === 'density')
+            return;
+
         ensureBuffers(fluid);
 
-        if (views.pressure)
-            writePressureColors(fluid, pressureColors, pressureRange);
-        if (views.cellTypes)
-            writeCellTypes(fluid, cellTypeColors);
+        if (wantsDebugView) {
+            fluid.classifyCells();
 
-        velocityCount = views.velocity
-            ? writeVelocityVectors(fluid, velocityVertices)
-            : 0;
+            if (views.pressure)
+                writePressureColors(fluid, pressureColors, pressureRange);
+            if (views.cellTypes)
+                writeCellTypes(fluid, cellTypeColors);
+
+            velocityCount = views.velocity
+                ? writeVelocityVectors(fluid, velocityVertices)
+                : 0;
+        }
+
+        // Density is the solver's own scheme and stays untouched: the renderer falls
+        // back to fluid.particleColor for it.
+        if (particleMode !== 'density')
+            writeParticleColors(fluid, particleColors, particleMode, particleRange, particleScratch);
 
         fieldUpdates++;
     }
@@ -1512,18 +1675,24 @@ function createDebug()
 
         const view = {};
 
-        // At most one colour field: pressure and cell types are both the whole
-        // grid painted, so showing both would just hide one behind the other.
-        const colors = views.pressure ? pressureColors : views.cellTypes ? cellTypeColors : null;
-        if (colors && colors.length === 3 * fluid.fNumCells)
-            view.texture = colors;
+        if (enabled) {
+            // At most one colour field: pressure and cell types are both the whole
+            // grid painted, so showing both would just hide one behind the other.
+            const colors = views.pressure ? pressureColors : views.cellTypes ? cellTypeColors : null;
+            if (colors && colors.length === 3 * fluid.fNumCells)
+                view.texture = colors;
 
-        // Vectors are lines over the top of whatever field is showing, which is
-        // the useful combination rather than a conflict.
-        if (views.velocity && velocityCount && velocityVertices)
-            view.lines = { vertices: velocityVertices, count: velocityCount };
+            // Vectors are lines over the top of whatever field is showing, which is
+            // the useful combination rather than a conflict.
+            if (views.velocity && velocityCount && velocityVertices)
+                view.lines = { vertices: velocityVertices, count: velocityCount };
+        }
 
-        return view.texture || view.lines ? view : null;
+        if (particleMode !== 'density'
+            && particleColors && particleColors.length === 3 * fluid.maxParticles)
+            view.particleColors = particleColors;
+
+        return Object.keys(view).length ? view : null;
     }
 
     return {
@@ -1540,6 +1709,17 @@ function createDebug()
         get fieldUpdates()
         {
             return fieldUpdates;
+        },
+
+        get particleMode()
+        {
+            return particleMode;
+        },
+
+        setParticleMode(mode)
+        {
+            particleMode = mode;
+            particleRange.peak = 0;
         },
 
         setViews(value)
@@ -1577,6 +1757,34 @@ function createDebug()
 	__exports.createRuntimeStats = createRuntimeStats;
 	__exports.createTimings = createTimings;
 	__exports.createDebug = createDebug;
+};
+
+__mods["src/utils/color.js"] = function (__exports, __req) {
+"use strict";
+// Copyright 2022 Matthias Müller - Ten Minute Physics (MIT). See ../../LICENSE.
+
+// A colour input gives "#rrggbb"; the renderer wants three floats. The conversion
+// belongs at that boundary rather than in either side, so neither has to know the
+// other's format.
+function hexToRgb(hex)
+{
+    const value = String(hex).replace('#', '');
+    const full = value.length === 3
+        ? value.split('').map(character => character + character).join('')
+        : value;
+
+    const number = Number.parseInt(full, 16);
+    if (!Number.isFinite(number) || full.length !== 6)
+        return [1, 0, 0];
+
+    return [
+        ((number >> 16) & 0xff) / 255,
+        ((number >> 8) & 0xff) / 255,
+        (number & 0xff) / 255
+    ];
+}
+
+	__exports.hexToRgb = hexToRgb;
 };
 
 __mods["src/render/glUtils.js"] = function (__exports, __req) {
@@ -1691,10 +1899,11 @@ const meshVertexShader = `
 
 const meshFragmentShader = `
     precision mediump float;
+    uniform float alpha;
     varying vec3 fragColor;
 
     void main() {
-        gl_FragColor = vec4(fragColor, 1.0);
+        gl_FragColor = vec4(fragColor, alpha);
     }
 `;
 
@@ -1829,7 +2038,7 @@ class Renderer
 
             this.meshLocations = getLocations(
                 gl, this.meshShader,
-                ['domainSize', 'color', 'translation', 'scale'],
+                ['domainSize', 'color', 'translation', 'scale', 'alpha'],
                 ['attrPosition']);
 
             this.fieldLocations = getLocations(
@@ -1944,7 +2153,7 @@ class Renderer
     // `field` is an optional debug view: { colors, scale }, where scale is in
     // cells. It takes the place of the density grid while it is on, since both
     // are cell-centred views and drawing one over the other just overdraws.
-    draw(scene, field = null)
+    draw(scene, field = null, appearance = null)
     {
         const gl = this.gl;
         const fluid = scene.fluid;
@@ -1963,9 +2172,9 @@ class Renderer
             this.drawLines(field.lines.vertices, field.lines.count);
 
         if (scene.showParticles)
-            this.drawParticles(fluid);
+        this.drawParticles(fluid, field && field.particleColors);
 
-        this.drawObstacle(scene, fluid);
+        this.drawObstacle(scene, fluid, appearance);
     }
 
     // Cell-centred points, coloured from any per-cell array. The density grid and
@@ -2065,7 +2274,10 @@ class Renderer
         gl.bindBuffer(gl.ARRAY_BUFFER, null);
     }
 
-    drawParticles(fluid)
+    // `colors` is an optional replacement for the solver's particle colours, used
+    // by the colour modes; the default passes nothing and the solver's own array is
+    // uploaded exactly as before.
+    drawParticles(fluid, colors = null)
     {
         const gl = this.gl;
         const loc = this.pointLocations;
@@ -2086,7 +2298,7 @@ class Renderer
         gl.vertexAttribPointer(loc.attributes.attrPosition, 2, gl.FLOAT, false, 0, 0);
 
         gl.bindBuffer(gl.ARRAY_BUFFER, this.pointColorBuffer);
-        gl.bufferData(gl.ARRAY_BUFFER, fluid.particleColor, gl.DYNAMIC_DRAW);
+        gl.bufferData(gl.ARRAY_BUFFER, colors ?? fluid.particleColor, gl.DYNAMIC_DRAW);
 
         gl.enableVertexAttribArray(loc.attributes.attrColor);
         gl.vertexAttribPointer(loc.attributes.attrColor, 3, gl.FLOAT, false, 0, 0);
@@ -2099,20 +2311,29 @@ class Renderer
         gl.bindBuffer(gl.ARRAY_BUFFER, null);
     }
 
-    drawObstacle(scene, fluid)
+    drawObstacle(scene, fluid, appearance = null)
     {
         const gl = this.gl;
         const loc = this.meshLocations;
 
         gl.clear(gl.DEPTH_BUFFER_BIT);
 
-        const diskColor = [1.0, 0.0, 0.0];
+        const diskColor = appearance && appearance.color ? appearance.color : [1.0, 0.0, 0.0];
+        const alpha = appearance && appearance.opacity !== undefined ? appearance.opacity : 1.0;
 
         gl.useProgram(this.meshShader);
         gl.uniform2f(loc.uniforms.domainSize, this.simWidth, this.simHeight);
         gl.uniform3f(loc.uniforms.color, diskColor[0], diskColor[1], diskColor[2]);
+        gl.uniform1f(loc.uniforms.alpha, alpha);
         gl.uniform2f(loc.uniforms.translation, scene.obstacleX, scene.obstacleY);
         gl.uniform1f(loc.uniforms.scale, scene.obstacleRadius + fluid.particleRadius);
+
+        // Blending only when it is asked for, so an opaque disc is drawn exactly as
+        // it always was.
+        if (alpha < 1.0) {
+            gl.enable(gl.BLEND);
+            gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+        }
 
         gl.enableVertexAttribArray(loc.attributes.attrPosition);
         gl.bindBuffer(gl.ARRAY_BUFFER, this.diskVertBuffer);
@@ -2122,6 +2343,9 @@ class Renderer
         gl.drawElements(gl.TRIANGLES, 3 * NUM_SEGS, gl.UNSIGNED_SHORT, 0);
 
         gl.disableVertexAttribArray(loc.attributes.attrPosition);
+
+        if (alpha < 1.0)
+            gl.disable(gl.BLEND);
     }
 }
 
@@ -2355,7 +2579,10 @@ const DEBUG_ROWS = [
     { key: 'memoryBytes', label: 'Memory', format: value => (value / 1048576).toFixed(1) + ' MB' }
 ];
 
-function attachDebugPanel(doc, { enabled, views, onToggle, onViews })
+function attachDisplayPanel(doc, {
+    enabled, views, particleColor, obstacle,
+    onToggle, onViews, onParticleColor, onObstacle
+})
 {
     const checkbox = doc.getElementById('debugEnabled');
     const body = doc.getElementById('debugStats');
@@ -2416,6 +2643,40 @@ function attachDebugPanel(doc, { enabled, views, onToggle, onViews })
     if (viewBox)
         viewBox.hidden = !enabled;
 
+    // The particle colour mode and the disc's appearance. Both are view choices,
+    // so neither waits for the debug switch - except the disc's radius, which is a
+    // simulation parameter and is applied by the caller.
+    const modeSelect = doc.getElementById('particleColor');
+    if (modeSelect) {
+        modeSelect.value = particleColor;
+        modeSelect.addEventListener('change', () => onParticleColor(modeSelect.value));
+    }
+
+    const disc = {
+        color: doc.getElementById('obstacleColor'),
+        opacity: doc.getElementById('obstacleOpacity'),
+        size: doc.getElementById('obstacleSize')
+    };
+
+    function readObstacle()
+    {
+        return {
+            color: disc.color ? disc.color.value : obstacle.color,
+            opacity: disc.opacity ? Number(disc.opacity.value) : obstacle.opacity,
+            radius: disc.size ? Number(disc.size.value) : obstacle.radius
+        };
+    }
+
+    for (const control of [disc.color, disc.opacity, disc.size]) {
+        if (control)
+            control.addEventListener('input', () => onObstacle(readObstacle()));
+    }
+
+    if (disc.opacity)
+        disc.opacity.value = String(obstacle.opacity);
+    if (disc.size)
+        disc.size.value = String(obstacle.radius);
+
     const panel = {
         update(stats)
         {
@@ -2448,6 +2709,19 @@ function attachDebugPanel(doc, { enabled, views, onToggle, onViews })
         {
             for (const [key, element] of viewBoxes)
                 element.checked = Boolean(next[key]);
+        },
+
+        setParticleColor(mode)
+        {
+            if (modeSelect)
+                modeSelect.value = mode;
+        },
+
+        setObstacle(next)
+        {
+            if (disc.color) disc.color.value = next.color;
+            if (disc.opacity) disc.opacity.value = String(next.opacity);
+            if (disc.size) disc.size.value = String(next.radius);
         }
     };
 
@@ -2460,7 +2734,7 @@ function attachDebugPanel(doc, { enabled, views, onToggle, onViews })
 	__exports.VIEW_TOGGLES = VIEW_TOGGLES;
 	__exports.attachControls = attachControls;
 	__exports.attachSettings = attachSettings;
-	__exports.attachDebugPanel = attachDebugPanel;
+	__exports.attachDisplayPanel = attachDisplayPanel;
 };
 
 __mods["src/app/loop.js"] = function (__exports, __req) {
@@ -2566,10 +2840,11 @@ const { setupScene } = __req("src/core/scenarios.js");
 const { setObstacle } = __req("src/core/obstacle.js");
 const { createConfig, clampParticleCount, PARTICLES } = __req("src/core/config.js");
 const { createDebug } = __req("src/debug/Debug.js");
+const { hexToRgb } = __req("src/utils/color.js");
 const { Renderer } = __req("src/render/Renderer.js");
 const { setupCanvas } = __req("src/app/canvas.js");
 const { attachInput } = __req("src/app/Input.js");
-const { attachControls, attachSettings, attachDebugPanel } = __req("src/app/UI.js");
+const { attachControls, attachSettings, attachDisplayPanel } = __req("src/app/UI.js");
 const { simulateOnce, startLoop } = __req("src/app/loop.js");
 const { VERSION } = __req("src/version.js");
 
@@ -2634,7 +2909,7 @@ attachSettings(document, {
     onApply: applyParticleCount
 });
 
-const debugPanel = attachDebugPanel(document, {
+const debugPanel = attachDisplayPanel(document, {
     enabled: config.debug.enabled,
     views: {
         particles: config.debug.showParticles,
@@ -2643,6 +2918,8 @@ const debugPanel = attachDebugPanel(document, {
         cellTypes: config.debug.showCellTypes,
         velocity: config.debug.showVelocity
     },
+    particleColor: config.debug.particleColor,
+    obstacle: config.obstacle,
     onToggle: value => {
         config.debug.enabled = value;
         debug.setEnabled(value);
@@ -2678,6 +2955,23 @@ const debugPanel = attachDebugPanel(document, {
         config.debug.showVelocity = views.velocity;
         debug.setViews(views);
         debug.updateField(scene);
+    },
+    onParticleColor: mode => {
+        config.debug.particleColor = mode;
+        debug.setParticleMode(mode);
+        debug.updateField(scene);
+    },
+    onObstacle: appearance => {
+        config.obstacle.color = appearance.color;
+        config.obstacle.opacity = appearance.opacity;
+
+        // The radius is a simulation parameter: the solver stamps the disc into the
+        // solid cells, so a new size means re-stamping and a different flow.
+        if (appearance.radius !== config.obstacle.radius) {
+            config.obstacle.radius = appearance.radius;
+            scene.obstacleRadius = appearance.radius;
+            setObstacle(scene, scene.obstacleX, scene.obstacleY, true);
+        }
     }
 });
 
@@ -2686,7 +2980,11 @@ const debugPanel = attachDebugPanel(document, {
 // and a test that draws differently from the app tests the wrong thing.
 function drawFrame()
 {
-    renderer.draw(scene, debug.fieldView(scene));
+    renderer.draw(scene, debug.fieldView(scene), {
+        color: hexToRgb(config.obstacle.color),
+        opacity: config.obstacle.opacity,
+        radius: config.obstacle.radius
+    });
 }
 
 // Shown in the corner of the page, so a screenshot or a running sim says which

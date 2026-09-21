@@ -87,6 +87,27 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 				<label class = "toggle"><input type = "checkbox" id = "showCellTypes"> Cell Types</label>
 				<label class = "toggle"><input type = "checkbox" id = "showVelocity"> Velocity</label>
 			</div>
+			<div class = "field">
+				<label for = "particleColor">Particle Colour</label>
+				<select id = "particleColor">
+					<option value = "density">Density</option>
+					<option value = "speed">Speed</option>
+					<option value = "pressure">Pressure</option>
+					<option value = "vorticity">Vorticity</option>
+				</select>
+			</div>
+			<div class = "field">
+				<label for = "obstacleColor">Disc Colour</label>
+				<input type = "color" id = "obstacleColor" value = "#ff0000">
+			</div>
+			<div class = "field">
+				<label for = "obstacleOpacity">Disc Opacity</label>
+				<input type = "range" id = "obstacleOpacity" class = "slider" min = "0.1" max = "1" step = "0.05" value = "1">
+			</div>
+			<div class = "field">
+				<label for = "obstacleSize">Disc Size</label>
+				<input type = "range" id = "obstacleSize" class = "slider" min = "0.05" max = "0.5" step = "0.01" value = "0.15">
+			</div>
 			<div id = "debugStats" hidden></div>
 		</div>
 	</div>

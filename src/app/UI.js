@@ -107,7 +107,10 @@ const DEBUG_ROWS = [
     { key: 'memoryBytes', label: 'Memory', format: value => (value / 1048576).toFixed(1) + ' MB' }
 ];
 
-export function attachDebugPanel(doc, { enabled, views, onToggle, onViews })
+export function attachDisplayPanel(doc, {
+    enabled, views, particleColor, obstacle,
+    onToggle, onViews, onParticleColor, onObstacle
+})
 {
     const checkbox = doc.getElementById('debugEnabled');
     const body = doc.getElementById('debugStats');
@@ -168,6 +171,40 @@ export function attachDebugPanel(doc, { enabled, views, onToggle, onViews })
     if (viewBox)
         viewBox.hidden = !enabled;
 
+    // The particle colour mode and the disc's appearance. Both are view choices,
+    // so neither waits for the debug switch - except the disc's radius, which is a
+    // simulation parameter and is applied by the caller.
+    const modeSelect = doc.getElementById('particleColor');
+    if (modeSelect) {
+        modeSelect.value = particleColor;
+        modeSelect.addEventListener('change', () => onParticleColor(modeSelect.value));
+    }
+
+    const disc = {
+        color: doc.getElementById('obstacleColor'),
+        opacity: doc.getElementById('obstacleOpacity'),
+        size: doc.getElementById('obstacleSize')
+    };
+
+    function readObstacle()
+    {
+        return {
+            color: disc.color ? disc.color.value : obstacle.color,
+            opacity: disc.opacity ? Number(disc.opacity.value) : obstacle.opacity,
+            radius: disc.size ? Number(disc.size.value) : obstacle.radius
+        };
+    }
+
+    for (const control of [disc.color, disc.opacity, disc.size]) {
+        if (control)
+            control.addEventListener('input', () => onObstacle(readObstacle()));
+    }
+
+    if (disc.opacity)
+        disc.opacity.value = String(obstacle.opacity);
+    if (disc.size)
+        disc.size.value = String(obstacle.radius);
+
     const panel = {
         update(stats)
         {
@@ -200,6 +237,19 @@ export function attachDebugPanel(doc, { enabled, views, onToggle, onViews })
         {
             for (const [key, element] of viewBoxes)
                 element.checked = Boolean(next[key]);
+        },
+
+        setParticleColor(mode)
+        {
+            if (modeSelect)
+                modeSelect.value = mode;
+        },
+
+        setObstacle(next)
+        {
+            if (disc.color) disc.color.value = next.color;
+            if (disc.opacity) disc.opacity.value = String(next.opacity);
+            if (disc.size) disc.size.value = String(next.radius);
         }
     };
 

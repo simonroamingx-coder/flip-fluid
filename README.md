@@ -11,8 +11,16 @@ pressure as red intensity, the cell types, which is the grid as the solver sees 
 and doubles as the collision view, and velocity vectors. Switching debug on
 reveals the statistics behind them: frame rate, timings stage by stage, particle
 and grid counts, and the solver's own settings - time step, grid resolution,
-pressure iterations, FLIP ratio and memory. See
-[WORKFLOW.md](WORKFLOW.md) for how versions and releases work - committing is
+pressure iterations, FLIP ratio and memory. The particles can be coloured by
+density (the original's scheme), speed, pressure or vorticity, and the disc takes
+a colour, an opacity and a size.
+
+One thing worth knowing about the disc: it collides with particles, but it is
+never stamped into the solver's grid - not here, and not in the original either,
+because the reference calls `f.numX` and `f.numY`, which its solver does not
+define. The port is faithful to that. See appendix C8 of the specification.
+
+See [WORKFLOW.md](WORKFLOW.md) for how versions and releases work - committing is
 local, and pushing is the step you take when you are satisfied with a piece of
 work.
 

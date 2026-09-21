@@ -221,8 +221,144 @@ function panelScript()
         views.velocityField = await picture(true, false, true);
         entry.scene.showParticles = hadParticles;
 
+        // The particle colour modes and the disc's appearance. Neither needs the
+        // debug switch: they are view choices, not collected statistics.
+        const modeSeen = [];
+
+        const modeShot = async mode => {
+            // Only the particles, so what is compared is the colour mode and nothing
+            // that happens to be drawn over it.
+            for (const view of ['showPressure', 'showCellTypes', 'showVelocity', 'showGrid']) {
+                setView(view, false);
+            }
+            setView('showParticles', true);
+
+            const select = document.getElementById('particleColor');
+            select.value = mode;
+            select.dispatchEvent(new Event('change', { bubbles: true }));
+            await wait(300);
+            entry.draw();
+            const view = entry.debug.fieldView(entry.scene);
+            const first = view && view.particleColors
+                ? Array.from(view.particleColors.slice(0, 6)).map(v => Math.round(v)).join(',')
+                : 'none';
+
+            // What the canvas actually holds, hashed: the buffer being right and the
+            // picture being right are two different claims.
+            const surface = document.createElement('canvas');
+            surface.width = 64;
+            surface.height = 64;
+            const context = surface.getContext('2d');
+            context.drawImage(document.getElementById('myCanvas'), 0, 0, 64, 64);
+            const pixels = context.getImageData(0, 0, 64, 64).data;
+            let hash = 0;
+            for (let i = 0; i < pixels.length; i += 4) hash = (hash * 31 + pixels[i]) % 1e9;
+
+            modeSeen.push(mode + '[' + first + ']pixels:' + hash);
+            return document.getElementById('myCanvas').toDataURL('image/png');
+        };
+
+        const densityParticles = await modeShot('density');
+        const speedParticles = await modeShot('speed');
+        const pressureParticles = await modeShot('pressure');
+        const vorticityParticles = await modeShot('vorticity');
+        await modeShot('density');
+        Object.assign(views, {
+            speedParticles: speedParticles,
+            pressureParticles: pressureParticles
+        });
+
+        const discShot = async (color, opacity, size) => {
+            const set = (id, value) => {
+                const control = document.getElementById(id);
+                control.value = String(value);
+                control.dispatchEvent(new Event('input', { bubbles: true }));
+            };
+            set('obstacleColor', color);
+            set('obstacleOpacity', opacity);
+            set('obstacleSize', size);
+            await wait(250);
+            entry.draw();
+            return document.getElementById('myCanvas').toDataURL('image/png');
+        };
+
+        const discRed = await discShot('#ff0000', 1, 0.15);
+        const discBlue = await discShot('#0040ff', 1, 0.15);
+        const discFaint = await discShot('#ff0000', 0.2, 0.15);
+        const discLarge = await discShot('#ff0000', 1, 0.3);
+
+        // The disc's grid stamping never runs, here or upstream: the original calls
+        // f.numX and f.numY, which the solver does not define, so those loops exit
+        // immediately. What the disc does instead is take the velocity of every
+        // particle inside its radius, and that is what the size control changes -
+        // so this drags the disc and counts how many particles it grabbed.
+        const grabbed = () => {
+            const scene = entry.scene;
+            const fluid = scene.fluid;
+            let count = 0;
+            for (let i = 0; i < fluid.numParticles; i++) {
+                // A tolerance, not equality: the velocities live in a Float32Array
+                // and come back rounded, so an exact comparison never matches.
+                if (Math.abs(fluid.particleVel[2 * i] - scene.obstacleVelX) < 1e-5
+                    && Math.abs(fluid.particleVel[2 * i + 1] - scene.obstacleVelY) < 1e-5)
+                    count++;
+            }
+            return count;
+        };
+
+        const dragCount = radius => {
+            const scene = entry.scene;
+            entry.setObstacle(1.0, 1.0, true);
+            scene.obstacleRadius = radius;
+            entry.setObstacle(1.05, 1.0, false);      // gives the disc a velocity
+
+            // The collision pass on its own: a whole step would run the velocity
+            // transfer afterwards, which overwrites every particle's velocity from
+            // the grid and would hide what the disc just did to them.
+            scene.fluid.handleParticleCollisions(
+                scene.obstacleX, scene.obstacleY, scene.obstacleRadius,
+                scene.obstacleVelX, scene.obstacleVelY);
+
+            let nearby = 0;
+            for (let i = 0; i < scene.fluid.numParticles; i++) {
+                const dx = scene.fluid.particlePos[2 * i] - scene.obstacleX;
+                const dy = scene.fluid.particlePos[2 * i + 1] - scene.obstacleY;
+                if (Math.hypot(dx, dy) < 0.35) nearby++;
+            }
+
+            return { radius: radius, grabbed: grabbed(), nearby: nearby, velocity: scene.obstacleVelX };
+        };
+
+        const smallDisc = dragCount(0.15);
+        const largeDisc = dragCount(0.3);
+
+        // Back to where setupScene put it, at its own size.
+        entry.setObstacle(3.0, 2.0, true);
+        await discShot('#ff0000', 1, 0.15);
+
+        Object.assign(views, {
+            modesDiffer: new Set([densityParticles, speedParticles, pressureParticles, vorticityParticles]).size === 4,
+            modesSeen: modeSeen.join(' '),
+            modesLengths: [densityParticles, speedParticles, pressureParticles, vorticityParticles]
+                .map(shot => shot.length).join('/'),
+            modePairs: [
+                densityParticles === speedParticles ? 'd=s' : '',
+                densityParticles === pressureParticles ? 'd=p' : '',
+                densityParticles === vorticityParticles ? 'd=v' : '',
+                speedParticles === pressureParticles ? 's=p' : '',
+                speedParticles === vorticityParticles ? 's=v' : '',
+                pressureParticles === vorticityParticles ? 'p=v' : ''
+            ].filter(Boolean).join(' ') || 'none equal',
+            discColorDiffers: discBlue !== discRed,
+            discOpacityDiffers: discFaint !== discRed,
+            discSizeDiffers: discLarge !== discRed,
+            discSizeIsPhysical: largeDisc.grabbed > smallDisc.grabbed * 2,
+            discSize: 'small ' + JSON.stringify(smallDisc) + ' -> large ' + JSON.stringify(largeDisc)
+        });
+
         // How often the field is recomputed, against how often we are drawing.
         // A field that steps a few times a second is what reads as stutter.
+        setView('showCellTypes', true);
         entry.scene.paused = false;
         await wait(300);
 
@@ -369,6 +505,18 @@ class Cdp
     }
 }
 
+// A page script is supposed to hand back a JSON string. When it hands back
+// something else - an object, because a return statement moved, or undefined
+// because it threw - say so, instead of failing on JSON.parse with no clue.
+function readJson(value, label)
+{
+    if (typeof value !== 'string') {
+        throw new Error(`${label} returned ${typeof value} rather than a JSON string: `
+            + JSON.stringify(value)?.slice(0, 200));
+    }
+    return JSON.parse(value);
+}
+
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 
 function withTimeout(promise, ms, label)
@@ -433,20 +581,20 @@ async function openPage(cdp, url, entry)
         expression: `Boolean(document.createElement('canvas').getContext('webgl'))`, returnByValue: true
     })).result.value;
 
-    const loaded = JSON.parse((await cdp.send('Runtime.evaluate', {
+    const loaded = readJson((await cdp.send('Runtime.evaluate', {
         expression: initialScript(entry), returnByValue: true
-    })).result.value);
+    })).result.value, 'initialScript');
 
-    const driven = JSON.parse((await cdp.send('Runtime.evaluate', {
+    const driven = readJson((await cdp.send('Runtime.evaluate', {
         expression: driveScript(entry), returnByValue: true, awaitPromise: false
-    })).result.value);
+    })).result.value, 'driveScript');
     console.log('  driven and drawn');
 
     const shot = (await cdp.send('Page.captureScreenshot', { format: 'png' })).data;
 
-    const controlled = JSON.parse((await cdp.send('Runtime.evaluate', {
+    const controlled = readJson((await cdp.send('Runtime.evaluate', {
         expression: controlScript(entry), returnByValue: true
-    })).result.value);
+    })).result.value, 'controlScript');
     console.log('  controls exercised');
 
     // A fresh visit, because applying a particle count changes the scene and the
@@ -463,9 +611,9 @@ async function openPage(cdp, url, entry)
         return result.value === true;
     }, 20000, entry);
 
-    const settings = JSON.parse((await cdp.send('Runtime.evaluate', {
+    const settings = readJson((await cdp.send('Runtime.evaluate', {
         expression: panelScript(), returnByValue: true, awaitPromise: true
-    })).result.value);
+    })).result.value, 'panelScript');
     console.log('  panels exercised');
 
     const settingsShot = (await cdp.send('Page.captureScreenshot', { format: 'png' })).data;
@@ -628,6 +776,10 @@ try {
         Buffer.from(standalone.settings.views.cellsField.split(',')[1], 'base64'));
     await writeFile(join(artifacts, 'view-velocity.png'),
         Buffer.from(standalone.settings.views.velocityField.split(',')[1], 'base64'));
+    await writeFile(join(artifacts, 'particles-speed.png'),
+        Buffer.from(standalone.settings.views.speedParticles.split(',')[1], 'base64'));
+    await writeFile(join(artifacts, 'particles-pressure.png'),
+        Buffer.from(standalone.settings.views.pressureParticles.split(',')[1], 'base64'));
 
     const checks = [];
     const check = (name, ok, detail) => checks.push({ name, ok, detail });
@@ -768,6 +920,21 @@ try {
     check('the moved switches still live in the scene',
         [refactored, standalone].every(page => page.settings.views.gridIsSceneState),
         'the renderer reads them from the scene, as it always has');
+
+    check('the particle colour modes each draw differently',
+        [refactored, standalone].every(page => page.settings.views.modesDiffer),
+        `${refactored.settings.views.modesSeen} | lengths ${refactored.settings.views.modesLengths} `
+        + `| equal: ${refactored.settings.views.modePairs}`);
+
+    check('the disc takes the colour and opacity it is given',
+        [refactored, standalone].every(page =>
+            page.settings.views.discColorDiffers && page.settings.views.discOpacityDiffers),
+        'both change what is drawn');
+
+    check('the disc size is a simulation parameter',
+        [refactored, standalone].every(page =>
+            page.settings.views.discSizeDiffers && page.settings.views.discSizeIsPhysical),
+        `${refactored.settings.views.discSize} - twice the radius takes the velocity of four times the particles`);
 
     // The field is recomputed per drawn frame rather than at the panel's refresh
     // rate. Stepping it a few times a second is what made it look like stutter.

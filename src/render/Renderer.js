@@ -64,7 +64,7 @@ export class Renderer
 
             this.meshLocations = getLocations(
                 gl, this.meshShader,
-                ['domainSize', 'color', 'translation', 'scale'],
+                ['domainSize', 'color', 'translation', 'scale', 'alpha'],
                 ['attrPosition']);
 
             this.fieldLocations = getLocations(
@@ -179,7 +179,7 @@ export class Renderer
     // `field` is an optional debug view: { colors, scale }, where scale is in
     // cells. It takes the place of the density grid while it is on, since both
     // are cell-centred views and drawing one over the other just overdraws.
-    draw(scene, field = null)
+    draw(scene, field = null, appearance = null)
     {
         const gl = this.gl;
         const fluid = scene.fluid;
@@ -198,9 +198,9 @@ export class Renderer
             this.drawLines(field.lines.vertices, field.lines.count);
 
         if (scene.showParticles)
-            this.drawParticles(fluid);
+        this.drawParticles(fluid, field && field.particleColors);
 
-        this.drawObstacle(scene, fluid);
+        this.drawObstacle(scene, fluid, appearance);
     }
 
     // Cell-centred points, coloured from any per-cell array. The density grid and
@@ -300,7 +300,10 @@ export class Renderer
         gl.bindBuffer(gl.ARRAY_BUFFER, null);
     }
 
-    drawParticles(fluid)
+    // `colors` is an optional replacement for the solver's particle colours, used
+    // by the colour modes; the default passes nothing and the solver's own array is
+    // uploaded exactly as before.
+    drawParticles(fluid, colors = null)
     {
         const gl = this.gl;
         const loc = this.pointLocations;
@@ -321,7 +324,7 @@ export class Renderer
         gl.vertexAttribPointer(loc.attributes.attrPosition, 2, gl.FLOAT, false, 0, 0);
 
         gl.bindBuffer(gl.ARRAY_BUFFER, this.pointColorBuffer);
-        gl.bufferData(gl.ARRAY_BUFFER, fluid.particleColor, gl.DYNAMIC_DRAW);
+        gl.bufferData(gl.ARRAY_BUFFER, colors ?? fluid.particleColor, gl.DYNAMIC_DRAW);
 
         gl.enableVertexAttribArray(loc.attributes.attrColor);
         gl.vertexAttribPointer(loc.attributes.attrColor, 3, gl.FLOAT, false, 0, 0);
@@ -334,20 +337,29 @@ export class Renderer
         gl.bindBuffer(gl.ARRAY_BUFFER, null);
     }
 
-    drawObstacle(scene, fluid)
+    drawObstacle(scene, fluid, appearance = null)
     {
         const gl = this.gl;
         const loc = this.meshLocations;
 
         gl.clear(gl.DEPTH_BUFFER_BIT);
 
-        const diskColor = [1.0, 0.0, 0.0];
+        const diskColor = appearance && appearance.color ? appearance.color : [1.0, 0.0, 0.0];
+        const alpha = appearance && appearance.opacity !== undefined ? appearance.opacity : 1.0;
 
         gl.useProgram(this.meshShader);
         gl.uniform2f(loc.uniforms.domainSize, this.simWidth, this.simHeight);
         gl.uniform3f(loc.uniforms.color, diskColor[0], diskColor[1], diskColor[2]);
+        gl.uniform1f(loc.uniforms.alpha, alpha);
         gl.uniform2f(loc.uniforms.translation, scene.obstacleX, scene.obstacleY);
         gl.uniform1f(loc.uniforms.scale, scene.obstacleRadius + fluid.particleRadius);
+
+        // Blending only when it is asked for, so an opaque disc is drawn exactly as
+        // it always was.
+        if (alpha < 1.0) {
+            gl.enable(gl.BLEND);
+            gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+        }
 
         gl.enableVertexAttribArray(loc.attributes.attrPosition);
         gl.bindBuffer(gl.ARRAY_BUFFER, this.diskVertBuffer);
@@ -357,5 +369,8 @@ export class Renderer
         gl.drawElements(gl.TRIANGLES, 3 * NUM_SEGS, gl.UNSIGNED_SHORT, 0);
 
         gl.disableVertexAttribArray(loc.attributes.attrPosition);
+
+        if (alpha < 1.0)
+            gl.disable(gl.BLEND);
     }
 }

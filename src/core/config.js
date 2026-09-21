@@ -30,7 +30,20 @@ export function createConfig()
             showGrid: false,
             showPressure: false,
             showCellTypes: false,
-            showVelocity: false
+            showVelocity: false,
+
+            // What the particles are coloured by. Density is the solver's own
+            // scheme; the others are read out of the solver and drawn instead.
+            particleColor: 'density'
+        },
+
+        // How the disc is drawn. Its radius is a simulation parameter rather than
+        // an appearance one - the solver stamps the disc into the solid cells - so
+        // changing it re-stamps, and changes how the fluid behaves.
+        obstacle: {
+            color: '#ff0000',
+            opacity: 1,
+            radius: 0.15
         }
     };
 }
