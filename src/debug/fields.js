@@ -103,10 +103,17 @@ export function writeCellTypes(fluid, colors)
 // the bottom one, so the cell's own velocity is the mean of its two faces in each
 // direction. Only fluid cells get one: an arrow floating in the air would be a
 // velocity the solver never computed.
-// Sampling density and arrow length. These are the two knobs section 21 of the
-// specification mentions; they are constants for now, and would be sliders if
-// the view grew a settings row of its own.
-export const VELOCITY = { stride: 5, scale: 0.2 };
+// Sampling density, arrow length per unit of speed, and a cap on that length.
+// Speeds here are spread widely - the median is around 1 while the fastest cells
+// reach 8 - so one linear scale cannot serve both ends: shorten it until the fast
+// arrows are sane and the typical flow disappears, or leave it and a handful of
+// cells draw lines across a third of the tank. The cap leaves the middle of the
+// distribution linear and stops the tail from dominating. Cells above the cap all
+// draw the same length, so the picture reads as direction with the magnitude
+// readable up to the cap and not beyond.
+//
+// Constants rather than panel controls, which section 21 allows for.
+export const VELOCITY = { stride: 5, scale: 0.05, cap: 0.2 };
 
 // The layout contract between the writer below and the renderer that uploads it:
 // one line segment per vector, two vertices, two floats per vertex. It lives here
@@ -136,10 +143,15 @@ export function writeVelocityVectors(fluid, vertices, options = VELOCITY)
             const x = (xi + 0.5) * h;
             const y = (yi + 0.5) * h;
 
+            // Direction is the velocity's; only its length is capped.
+            const speed = Math.hypot(ux, vy);
+            const length = Math.min(speed * options.scale, options.cap);
+            const factor = speed > 0 ? length / speed : 0;
+
             vertices[written++] = x;
             vertices[written++] = y;
-            vertices[written++] = x + ux * options.scale;
-            vertices[written++] = y + vy * options.scale;
+            vertices[written++] = x + ux * factor;
+            vertices[written++] = y + vy * factor;
             vectors++;
         }
     }

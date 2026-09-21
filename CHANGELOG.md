@@ -44,6 +44,9 @@ Everything the specification asks for:
   faces bounding it in the solver's own `u` and `v`. Vectors draw over whichever
   field is showing, which is the combination worth having. Sampling density and
   arrow length are the two knobs section 21 mentions; they are constants for now.
+  Length is speed times a scale, capped: speeds here run from a median near 1 to
+  a maximum near 8, and an uncapped linear scale either made the typical flow
+  invisible or let a handful of cells draw lines across a third of the tank.
 - **Advanced inspection**: the time step, grid resolution, pressure iterations,
   FLIP ratio and memory footprint, grouped as "Solver" in the panel.
   `FlipFluid.byteSize()` reports the solver's own array footprint by walking its

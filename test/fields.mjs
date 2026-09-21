@@ -163,6 +163,8 @@ const vectors = writeVelocityVectors(fluid, vertices);
 let expected = 0;
 let misplaced = 0;
 let wrongLength = 0;
+let overCap = 0;
+let capped = 0;
 let moved = 0;
 
 for (let xi = 1; xi < fluid.fNumX - 1; xi += VELOCITY.stride) {
@@ -189,15 +191,23 @@ for (let index = 0; index < vectors; index++) {
     if (fluid.cellType[cellAt(xi, yi)] !== FLUID_CELL)
         misplaced++;
 
-    // Length is the cell's velocity times the display scale, where the cell's
-    // velocity is the mean of the two faces bounding it in each direction.
+    // Length is the cell's velocity times the display scale, capped so the
+    // fastest cells cannot draw lines across the picture. The cell's velocity is
+    // the mean of the two faces bounding it in each direction.
     const cell = cellAt(xi, yi);
     const ux = 0.5 * (fluid.u[cell] + fluid.u[(xi + 1) * fluid.fNumY + yi]);
     const vy = 0.5 * (fluid.v[cell] + fluid.v[cell + 1]);
     const speed = Math.hypot(ux, vy);
+    const wanted = speed * VELOCITY.scale;
+    const expectedLength = Math.min(wanted, VELOCITY.cap);
     const length = Math.hypot(x2 - x1, y2 - y1);
-    if (Math.abs(length - speed * VELOCITY.scale) > 1e-4)
+
+    if (Math.abs(length - expectedLength) > 1e-4)
         wrongLength++;
+    if (length > VELOCITY.cap + 1e-4)
+        overCap++;
+    if (wanted > VELOCITY.cap)
+        capped++;
     if (length > 1e-6)
         moved++;
 }
@@ -205,8 +215,14 @@ for (let index = 0; index < vectors; index++) {
 check('vectors belong to fluid cells', misplaced === 0,
     `${vectors} vectors, ${expected} fluid cells sampled, ${misplaced} misplaced`);
 
-check('vector length is speed times the scale', wrongLength === 0,
-    wrongLength ? `${wrongLength} vectors with the wrong length` : `scale ${VELOCITY.scale}`);
+check('vector length is speed times the scale, capped', wrongLength === 0,
+    wrongLength ? `${wrongLength} vectors with the wrong length`
+        : `scale ${VELOCITY.scale}, cap ${VELOCITY.cap}, ${capped} of ${vectors} capped`);
+
+check('no vector is longer than the cap', overCap === 0,
+    `longest allowed ${VELOCITY.cap}, longest drawn ${Math.max(...Array.from({ length: vectors },
+        (_, index) => Math.hypot(vertices[4 * index + 2] - vertices[4 * index],
+            vertices[4 * index + 3] - vertices[4 * index + 1]))).toFixed(3)}`);
 
 check('the vectors show motion', moved > vectors * 0.2,
     `${moved} of ${vectors} vectors have a length`);
