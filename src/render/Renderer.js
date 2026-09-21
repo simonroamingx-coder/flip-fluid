@@ -6,6 +6,7 @@
 // lazily inside the per-frame draw path.
 
 import { createShader, getLocations } from './glUtils.js';
+import { FLOATS_PER_VECTOR, VERTICES_PER_VECTOR } from '../debug/fields.js';
 import {
     pointVertexShader, pointFragmentShader, meshVertexShader, meshFragmentShader,
     fieldVertexShader, fieldFragmentShader, lineVertexShader, lineFragmentShader
@@ -288,12 +289,12 @@ export class Renderer
         gl.uniform3f(loc.uniforms.color, 0.25, 1.0, 0.45);
 
         gl.bindBuffer(gl.ARRAY_BUFFER, this.lineBuffer);
-        gl.bufferData(gl.ARRAY_BUFFER, vertices.subarray(0, count * 2), gl.DYNAMIC_DRAW);
+        gl.bufferData(gl.ARRAY_BUFFER, vertices.subarray(0, count * FLOATS_PER_VECTOR), gl.DYNAMIC_DRAW);
 
         gl.enableVertexAttribArray(loc.attributes.attrPosition);
         gl.vertexAttribPointer(loc.attributes.attrPosition, 2, gl.FLOAT, false, 0, 0);
 
-        gl.drawArrays(gl.LINES, 0, count);
+        gl.drawArrays(gl.LINES, 0, count * VERTICES_PER_VECTOR);
 
         gl.disableVertexAttribArray(loc.attributes.attrPosition);
         gl.bindBuffer(gl.ARRAY_BUFFER, null);

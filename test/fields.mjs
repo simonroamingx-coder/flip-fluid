@@ -11,9 +11,11 @@
 
 import { AIR_CELL, FLUID_CELL, SOLID_CELL } from '../src/core/constants.js';
 import {
-    VELOCITY, createPressureRange, writeCellTypes, writePressureColors, writeVelocityVectors
+    FLOATS_PER_VECTOR, VELOCITY, VERTICES_PER_VECTOR,
+    createPressureRange, writeCellTypes, writePressureColors, writeVelocityVectors
 } from '../src/debug/fields.js';
 import { domainForViewport, loadRefactored, snapshot, stepRefactored } from './lib/harness.mjs';
+import { Renderer } from '../src/render/Renderer.js';
 
 const results = [];
 const check = (name, ok, detail = '') => results.push({ name, ok, detail });
@@ -208,6 +210,40 @@ check('vector length is speed times the scale', wrongLength === 0,
 
 check('the vectors show motion', moved > vectors * 0.2,
     `${moved} of ${vectors} vectors have a length`);
+
+// ------------------------------------------------ the renderer's half of it
+//
+// Writer and renderer have to agree on the layout: one segment per vector, two
+// vertices, four floats. When they derived it separately the renderer drew half
+// the vectors - exactly the left half of the tank, in scan order - so this drives
+// the draw call with a stand-in context and checks what it asked for.
+
+const calls = { upload: null, draw: null };
+
+const fakeGl = {
+    ARRAY_BUFFER: 1, FLOAT: 2, LINES: 3, DYNAMIC_DRAW: 4,
+    useProgram() {}, uniform2f() {}, uniform3f() {},
+    bindBuffer() {}, enableVertexAttribArray() {}, vertexAttribPointer() {},
+    disableVertexAttribArray() {},
+    bufferData(target, data) { calls.upload = data; },
+    drawArrays(mode, first, count) { calls.draw = { mode, first, count }; }
+};
+
+const renderer = new Renderer(fakeGl, { width: 100, height: 100 }, 5, 3);
+renderer.lineShader = {};
+renderer.lineLocations = { uniforms: { domainSize: {}, color: {} }, attributes: { attrPosition: 0 } };
+renderer.lineBuffer = {};
+
+renderer.drawLines(new Float32Array(4 * 3), 3);
+
+check('the renderer draws one segment per vector',
+    Boolean(calls.draw) && calls.draw.mode === fakeGl.LINES && calls.draw.first === 0
+    && calls.draw.count === 3 * VERTICES_PER_VECTOR,
+    `asked for ${calls.draw ? calls.draw.count : '?'} vertices for 3 vectors`);
+
+check('the renderer uploads the whole buffer',
+    Boolean(calls.upload) && calls.upload.length === 3 * FLOATS_PER_VECTOR,
+    `uploaded ${calls.upload ? calls.upload.length : '?'} floats for 3 vectors`);
 
 // ------------------------------------------------------------------- report
 

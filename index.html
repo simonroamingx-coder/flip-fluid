@@ -1228,6 +1228,15 @@ function writeCellTypes(fluid, colors)
 // the view grew a settings row of its own.
 const VELOCITY = { stride: 5, scale: 0.2 };
 
+// The layout contract between the writer below and the renderer that uploads it:
+// one line segment per vector, two vertices, two floats per vertex. It lives here
+// because two modules have to agree on it, and when they were each deriving it
+// separately the renderer drew half the vectors - exactly the left half of the
+// tank, in scan order.
+const VERTICES_PER_VECTOR = 2;
+const FLOATS_PER_VERTEX = 2;
+const FLOATS_PER_VECTOR = VERTICES_PER_VECTOR * FLOATS_PER_VERTEX;
+
 function writeVelocityVectors(fluid, vertices, options = VELOCITY)
 {
     const n = fluid.fNumY;
@@ -1262,6 +1271,9 @@ function writeVelocityVectors(fluid, vertices, options = VELOCITY)
 	__exports.writePressureColors = writePressureColors;
 	__exports.writeCellTypes = writeCellTypes;
 	__exports.VELOCITY = VELOCITY;
+	__exports.VERTICES_PER_VECTOR = VERTICES_PER_VECTOR;
+	__exports.FLOATS_PER_VERTEX = FLOATS_PER_VERTEX;
+	__exports.FLOATS_PER_VECTOR = FLOATS_PER_VECTOR;
 	__exports.writeVelocityVectors = writeVelocityVectors;
 };
 
@@ -1738,6 +1750,7 @@ __mods["src/render/Renderer.js"] = function (__exports, __req) {
 // lazily inside the per-frame draw path.
 
 const { createShader, getLocations } = __req("src/render/glUtils.js");
+const { FLOATS_PER_VECTOR, VERTICES_PER_VECTOR } = __req("src/debug/fields.js");
 const { pointVertexShader, pointFragmentShader, meshVertexShader, meshFragmentShader, fieldVertexShader, fieldFragmentShader, lineVertexShader, lineFragmentShader } = __req("src/render/shaders.js");
 
 const NUM_SEGS = 50;
@@ -2017,12 +2030,12 @@ class Renderer
         gl.uniform3f(loc.uniforms.color, 0.25, 1.0, 0.45);
 
         gl.bindBuffer(gl.ARRAY_BUFFER, this.lineBuffer);
-        gl.bufferData(gl.ARRAY_BUFFER, vertices.subarray(0, count * 2), gl.DYNAMIC_DRAW);
+        gl.bufferData(gl.ARRAY_BUFFER, vertices.subarray(0, count * FLOATS_PER_VECTOR), gl.DYNAMIC_DRAW);
 
         gl.enableVertexAttribArray(loc.attributes.attrPosition);
         gl.vertexAttribPointer(loc.attributes.attrPosition, 2, gl.FLOAT, false, 0, 0);
 
-        gl.drawArrays(gl.LINES, 0, count);
+        gl.drawArrays(gl.LINES, 0, count * VERTICES_PER_VECTOR);
 
         gl.disableVertexAttribArray(loc.attributes.attrPosition);
         gl.bindBuffer(gl.ARRAY_BUFFER, null);

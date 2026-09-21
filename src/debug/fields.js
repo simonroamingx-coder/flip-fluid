@@ -108,6 +108,15 @@ export function writeCellTypes(fluid, colors)
 // the view grew a settings row of its own.
 export const VELOCITY = { stride: 5, scale: 0.2 };
 
+// The layout contract between the writer below and the renderer that uploads it:
+// one line segment per vector, two vertices, two floats per vertex. It lives here
+// because two modules have to agree on it, and when they were each deriving it
+// separately the renderer drew half the vectors - exactly the left half of the
+// tank, in scan order.
+export const VERTICES_PER_VECTOR = 2;
+export const FLOATS_PER_VERTEX = 2;
+export const FLOATS_PER_VECTOR = VERTICES_PER_VECTOR * FLOATS_PER_VERTEX;
+
 export function writeVelocityVectors(fluid, vertices, options = VELOCITY)
 {
     const n = fluid.fNumY;
