@@ -87,12 +87,19 @@ const DEBUG_ROWS = [
     { key: 'particleCount', label: 'Particles', format: formatCount },
     { key: 'activeParticles', label: 'Active', format: formatCount },
     { key: 'gridCells', label: 'Grid Cells', format: formatCount },
-    { key: 'fluidCells', label: 'Fluid Cells', format: formatCount }
+    { key: 'fluidCells', label: 'Fluid Cells', format: formatCount },
+    { section: 'Solver' },
+    { key: 'dt', label: 'Time Step', format: value => (value * 1000).toFixed(2) + ' ms' },
+    { key: 'gridResolution', label: 'Grid Resolution', format: value => String(value) },
+    { key: 'pressureIters', label: 'Pressure Iters', format: value => String(value) },
+    { key: 'flipRatio', label: 'FLIP Ratio', format: value => value.toFixed(2) },
+    { key: 'memoryBytes', label: 'Memory', format: value => (value / 1048576).toFixed(1) + ' MB' }
 ];
 
 const DEBUG_VIEWS = [
     { id: 'showPressure', key: 'pressure' },
-    { id: 'showCellTypes', key: 'cellTypes' }
+    { id: 'showCellTypes', key: 'cellTypes' },
+    { id: 'showVelocity', key: 'velocity' }
 ];
 
 export function attachDebugPanel(doc, { enabled, views, onToggle, onViews })
@@ -109,6 +116,16 @@ export function attachDebugPanel(doc, { enabled, views, onToggle, onViews })
 
     for (const row of DEBUG_ROWS) {
         const line = doc.createElement('div');
+
+        // A section marker is a label with no value, so the list can grow a
+        // second group without another block of markup.
+        if (row.section) {
+            line.className = 'stat section';
+            line.textContent = row.section;
+            body.append(line);
+            continue;
+        }
+
         line.className = row.sub ? 'stat sub' : 'stat';
 
         const label = doc.createElement('span');

@@ -9,7 +9,8 @@ changed and applied, and debug, which reports frame rate, timings, particle
 counts, grid statistics and a stage-by-stage breakdown of the simulation while it
 is switched on, and can draw the pressure field or the cell types over the
 simulation - the grid as the solver sees it, which doubles as the collision view.
-See
+It also draws velocity vectors, and reports the solver's own settings: time step,
+grid resolution, pressure iterations, FLIP ratio and memory. See
 [WORKFLOW.md](WORKFLOW.md) for how versions and releases work - committing is
 local, and pushing is the step you take when you are satisfied with a piece of
 work.

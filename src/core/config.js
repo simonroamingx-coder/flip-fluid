@@ -24,7 +24,8 @@ export function createConfig()
 
             // Debug views drawn over the simulation, and only while debug is on.
             showPressure: false,
-            showCellTypes: false
+            showCellTypes: false,
+            showVelocity: false
         }
     };
 }

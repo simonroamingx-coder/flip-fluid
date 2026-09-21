@@ -129,6 +129,12 @@ body {
 	padding-left: 10px;
 	opacity: 0.85;
 }
+#debugStats .stat.section {
+	margin-top: 6px;
+	padding-top: 6px;
+	border-top: 1px solid #3a3a3a;
+	color: #9a9a9a;
+}
 
 /* The original demo carried this rule for a button it never had. The settings
    panel is the first thing here to need one. */
@@ -199,6 +205,7 @@ body {
 			<div id = "debugViews" hidden>
 				<label class = "toggle"><input type = "checkbox" id = "showPressure"> Pressure</label>
 				<label class = "toggle"><input type = "checkbox" id = "showCellTypes"> Cell Types</label>
+				<label class = "toggle"><input type = "checkbox" id = "showVelocity"> Velocity</label>
 			</div>
 			<div id = "debugStats" hidden></div>
 		</div>
@@ -690,6 +697,22 @@ class FlipFluid
         }
     }
 
+    // Bytes held by this solver's arrays. It walks its own properties, so there
+    // is no list of arrays to keep in step with the code, and it is a fact about
+    // the solver rather than something a debug view has to guess at.
+    byteSize()
+    {
+        var total = 0;
+
+        for (var key of Object.keys(this)) {
+            var value = this[key];
+            if (ArrayBuffer.isView(value))
+                total += value.byteLength;
+        }
+
+        return total;
+    }
+
     solveIncompressibility(numIters, dt, overRelaxation, compensateDrift = true)
     {
         this.p.fill(0.0);
@@ -1077,7 +1100,8 @@ function createConfig()
 
             // Debug views drawn over the simulation, and only while debug is on.
             showPressure: false,
-            showCellTypes: false
+            showCellTypes: false,
+            showVelocity: false
         }
     };
 }
@@ -1193,9 +1217,52 @@ function writeCellTypes(fluid, colors)
     }
 }
 
+// Velocity vectors, sampled on a stride so a fine grid does not turn into a mat
+// of arrows, and drawn from the cell centre outwards along the average of the
+// faces that bound it. In this solver u lives on the left face of a cell and v on
+// the bottom one, so the cell's own velocity is the mean of its two faces in each
+// direction. Only fluid cells get one: an arrow floating in the air would be a
+// velocity the solver never computed.
+// Sampling density and arrow length. These are the two knobs section 21 of the
+// specification mentions; they are constants for now, and would be sliders if
+// the view grew a settings row of its own.
+const VELOCITY = { stride: 5, scale: 0.2 };
+
+function writeVelocityVectors(fluid, vertices, options = VELOCITY)
+{
+    const n = fluid.fNumY;
+    const h = fluid.h;
+    let written = 0;
+    let vectors = 0;
+
+    for (let xi = 1; xi < fluid.fNumX - 1; xi += options.stride) {
+        for (let yi = 1; yi < fluid.fNumY - 1; yi += options.stride) {
+            const cell = xi * n + yi;
+            if (fluid.cellType[cell] !== FLUID_CELL)
+                continue;
+
+            const ux = 0.5 * (fluid.u[cell] + fluid.u[(xi + 1) * n + yi]);
+            const vy = 0.5 * (fluid.v[cell] + fluid.v[cell + 1]);
+
+            const x = (xi + 0.5) * h;
+            const y = (yi + 0.5) * h;
+
+            vertices[written++] = x;
+            vertices[written++] = y;
+            vertices[written++] = x + ux * options.scale;
+            vertices[written++] = y + vy * options.scale;
+            vectors++;
+        }
+    }
+
+    return vectors;
+}
+
 	__exports.createPressureRange = createPressureRange;
 	__exports.writePressureColors = writePressureColors;
 	__exports.writeCellTypes = writeCellTypes;
+	__exports.VELOCITY = VELOCITY;
+	__exports.writeVelocityVectors = writeVelocityVectors;
 };
 
 __mods["src/debug/Debug.js"] = function (__exports, __req) {
@@ -1212,7 +1279,7 @@ __mods["src/debug/Debug.js"] = function (__exports, __req) {
 // The panel formats what is here. It does not compute anything.
 
 const { FLUID_CELL } = __req("src/core/constants.js");
-const { createPressureRange, writePressureColors, writeCellTypes } = __req("src/debug/fields.js");
+const { VELOCITY, createPressureRange, writeCellTypes, writePressureColors, writeVelocityVectors } = __req("src/debug/fields.js");
 
 function createRuntimeStats()
 {
@@ -1234,7 +1301,14 @@ function createRuntimeStats()
         particleCount: 0,
         activeParticles: 0,
         gridCells: 0,
-        fluidCells: 0
+        fluidCells: 0,
+
+        // the solver's own settings, as they stand
+        dt: 0,
+        gridResolution: 0,
+        pressureIters: 0,
+        flipRatio: 0,
+        memoryBytes: 0
     };
 }
 
@@ -1267,9 +1341,11 @@ function createDebug()
 
     // Which of the debug views is showing. Kept here rather than read from the
     // configuration each frame, so the renderer is never asking the UI anything.
-    let views = { pressure: false, cellTypes: false };
+    let views = { pressure: false, cellTypes: false, velocity: false };
     let pressureColors = null;
     let cellTypeColors = null;
+    let velocityVertices = null;
+    let velocityCount = 0;
     const pressureRange = createPressureRange();
     let fieldUpdates = 0;
 
@@ -1338,6 +1414,12 @@ function createDebug()
         stats.activeParticles = fluid.numParticles;
         stats.gridCells = fluid.fNumCells;
         stats.fluidCells = fluidCells;
+
+        stats.dt = scene.dt;
+        stats.gridResolution = scene.gridResolution || 0;
+        stats.pressureIters = scene.numPressureIters;
+        stats.flipRatio = scene.flipRatio;
+        stats.memoryBytes = fluid.byteSize();
     }
 
     function ensureBuffers(fluid)
@@ -1348,6 +1430,10 @@ function createDebug()
 
         pressureColors = new Uint8Array(needed);
         cellTypeColors = new Uint8Array(needed);
+
+        const samples = Math.ceil(fluid.fNumX / VELOCITY.stride)
+            * Math.ceil(fluid.fNumY / VELOCITY.stride);
+        velocityVertices = new Float32Array(4 * samples);   // two vertices per vector
     }
 
     // Recomputes the colour buffer for whichever view is on. This runs every
@@ -1361,7 +1447,7 @@ function createDebug()
     function updateField(scene)
     {
         const fluid = scene && scene.fluid;
-        if (!fluid || !enabled || (!views.pressure && !views.cellTypes))
+        if (!fluid || !enabled || (!views.pressure && !views.cellTypes && !views.velocity))
             return;
 
         fluid.classifyCells();
@@ -1372,6 +1458,10 @@ function createDebug()
         if (views.cellTypes)
             writeCellTypes(fluid, cellTypeColors);
 
+        velocityCount = views.velocity
+            ? writeVelocityVectors(fluid, velocityVertices)
+            : 0;
+
         fieldUpdates++;
     }
 
@@ -1380,14 +1470,24 @@ function createDebug()
     // a stale buffer would be uploaded for the wrong number of vertices.
     function fieldView(scene)
     {
-        if (!enabled || !scene.fluid)
+        const fluid = scene.fluid;
+        if (!enabled || !fluid)
             return null;
 
+        const view = {};
+
+        // At most one colour field: pressure and cell types are both the whole
+        // grid painted, so showing both would just hide one behind the other.
         const colors = views.pressure ? pressureColors : views.cellTypes ? cellTypeColors : null;
-        if (!colors || colors.length !== 3 * scene.fluid.fNumCells)
-            return null;
+        if (colors && colors.length === 3 * fluid.fNumCells)
+            view.texture = colors;
 
-        return { colors };
+        // Vectors are lines over the top of whatever field is showing, which is
+        // the useful combination rather than a conflict.
+        if (views.velocity && velocityCount && velocityVertices)
+            view.lines = { vertices: velocityVertices, count: velocityCount };
+
+        return view.texture || view.lines ? view : null;
     }
 
     return {
@@ -1408,9 +1508,13 @@ function createDebug()
 
         setViews(value)
         {
-            views = { pressure: Boolean(value.pressure), cellTypes: Boolean(value.cellTypes) };
+            views = {
+                pressure: Boolean(value.pressure),
+                cellTypes: Boolean(value.cellTypes),
+                velocity: Boolean(value.velocity)
+            };
             if (!enabled)
-                views = { pressure: false, cellTypes: false };
+                views = { pressure: false, cellTypes: false, velocity: false };
         },
 
         get enabled()
@@ -1590,12 +1694,38 @@ const fieldFragmentShader = `
     }
 `;
 
+// Velocity vectors are line segments, so they need their own program: the point
+// and mesh shaders both draw their own geometry, not a caller-supplied pair of
+// endpoints.
+const lineVertexShader = `
+    attribute vec2 attrPosition;
+    uniform vec2 domainSize;
+
+    void main() {
+    vec4 screenTransform =
+        vec4(2.0 / domainSize.x, 2.0 / domainSize.y, -1.0, -1.0);
+    gl_Position =
+        vec4(attrPosition * screenTransform.xy + screenTransform.zw, 0.0, 1.0);
+    }
+`;
+
+const lineFragmentShader = `
+    precision mediump float;
+    uniform vec3 color;
+
+    void main() {
+        gl_FragColor = vec4(color, 1.0);
+    }
+`;
+
 	__exports.pointVertexShader = pointVertexShader;
 	__exports.pointFragmentShader = pointFragmentShader;
 	__exports.meshVertexShader = meshVertexShader;
 	__exports.meshFragmentShader = meshFragmentShader;
 	__exports.fieldVertexShader = fieldVertexShader;
 	__exports.fieldFragmentShader = fieldFragmentShader;
+	__exports.lineVertexShader = lineVertexShader;
+	__exports.lineFragmentShader = lineFragmentShader;
 };
 
 __mods["src/render/Renderer.js"] = function (__exports, __req) {
@@ -1608,7 +1738,7 @@ __mods["src/render/Renderer.js"] = function (__exports, __req) {
 // lazily inside the per-frame draw path.
 
 const { createShader, getLocations } = __req("src/render/glUtils.js");
-const { pointVertexShader, pointFragmentShader, meshVertexShader, meshFragmentShader, fieldVertexShader, fieldFragmentShader } = __req("src/render/shaders.js");
+const { pointVertexShader, pointFragmentShader, meshVertexShader, meshFragmentShader, fieldVertexShader, fieldFragmentShader, lineVertexShader, lineFragmentShader } = __req("src/render/shaders.js");
 
 const NUM_SEGS = 50;
 
@@ -1624,9 +1754,11 @@ class Renderer
         this.pointShader = null;
         this.meshShader = null;
         this.fieldShader = null;
+        this.lineShader = null;
         this.pointLocations = null;
         this.meshLocations = null;
         this.fieldLocations = null;
+        this.lineLocations = null;
 
         this.pointVertexBuffer = null;
         this.pointColorBuffer = null;
@@ -1635,6 +1767,7 @@ class Renderer
         this.diskVertBuffer = null;
         this.diskIdBuffer = null;
         this.fieldQuadBuffer = null;
+        this.lineBuffer = null;
         this.fieldTexture = null;
         this.fieldTextureSize = { width: 0, height: 0 };
     }
@@ -1650,6 +1783,7 @@ class Renderer
             this.pointShader = createShader(gl, pointVertexShader, pointFragmentShader);
             this.meshShader = createShader(gl, meshVertexShader, meshFragmentShader);
             this.fieldShader = createShader(gl, fieldVertexShader, fieldFragmentShader);
+            this.lineShader = createShader(gl, lineVertexShader, lineFragmentShader);
 
             this.pointLocations = getLocations(
                 gl, this.pointShader,
@@ -1665,6 +1799,11 @@ class Renderer
                 gl, this.fieldShader,
                 ['domainSize', 'field'],
                 ['attrPosition', 'attrUV']);
+
+            this.lineLocations = getLocations(
+                gl, this.lineShader,
+                ['domainSize', 'color'],
+                ['attrPosition']);
         }
 
         if (!this.fieldTexture) {
@@ -1747,6 +1886,8 @@ class Renderer
         gl.bindBuffer(gl.ARRAY_BUFFER, this.fieldQuadBuffer);
         gl.bufferData(gl.ARRAY_BUFFER, quad, gl.STATIC_DRAW);
         gl.bindBuffer(gl.ARRAY_BUFFER, null);
+
+        this.lineBuffer = gl.createBuffer();
     }
 
     disposeBuffers()
@@ -1776,10 +1917,13 @@ class Renderer
 
         gl.viewport(0, 0, this.canvas.width, this.canvas.height);
 
-        if (field)
-            this.drawField(field.colors, fluid);
+        if (field && field.texture)
+            this.drawField(field.texture, fluid);
         else if (scene.showGrid)
             this.drawCells(fluid.cellColor, fluid, 0.9 * fluid.h / this.simWidth * this.canvas.width);
+
+        if (field && field.lines)
+            this.drawLines(field.lines.vertices, field.lines.count);
 
         if (scene.showParticles)
             this.drawParticles(fluid);
@@ -1855,6 +1999,33 @@ class Renderer
         gl.disableVertexAttribArray(loc.attributes.attrUV);
         gl.bindBuffer(gl.ARRAY_BUFFER, null);
         gl.bindTexture(gl.TEXTURE_2D, null);
+    }
+
+    // Velocity vectors, as line segments supplied by the debug layer. Green, so
+    // they read against both the red pressure field and the blue cell view, and
+    // do not get mistaken for the white particles.
+    drawLines(vertices, count)
+    {
+        if (!count)
+            return;
+
+        const gl = this.gl;
+        const loc = this.lineLocations;
+
+        gl.useProgram(this.lineShader);
+        gl.uniform2f(loc.uniforms.domainSize, this.simWidth, this.simHeight);
+        gl.uniform3f(loc.uniforms.color, 0.25, 1.0, 0.45);
+
+        gl.bindBuffer(gl.ARRAY_BUFFER, this.lineBuffer);
+        gl.bufferData(gl.ARRAY_BUFFER, vertices.subarray(0, count * 2), gl.DYNAMIC_DRAW);
+
+        gl.enableVertexAttribArray(loc.attributes.attrPosition);
+        gl.vertexAttribPointer(loc.attributes.attrPosition, 2, gl.FLOAT, false, 0, 0);
+
+        gl.drawArrays(gl.LINES, 0, count);
+
+        gl.disableVertexAttribArray(loc.attributes.attrPosition);
+        gl.bindBuffer(gl.ARRAY_BUFFER, null);
     }
 
     drawParticles(fluid)
@@ -2127,12 +2298,19 @@ const DEBUG_ROWS = [
     { key: 'particleCount', label: 'Particles', format: formatCount },
     { key: 'activeParticles', label: 'Active', format: formatCount },
     { key: 'gridCells', label: 'Grid Cells', format: formatCount },
-    { key: 'fluidCells', label: 'Fluid Cells', format: formatCount }
+    { key: 'fluidCells', label: 'Fluid Cells', format: formatCount },
+    { section: 'Solver' },
+    { key: 'dt', label: 'Time Step', format: value => (value * 1000).toFixed(2) + ' ms' },
+    { key: 'gridResolution', label: 'Grid Resolution', format: value => String(value) },
+    { key: 'pressureIters', label: 'Pressure Iters', format: value => String(value) },
+    { key: 'flipRatio', label: 'FLIP Ratio', format: value => value.toFixed(2) },
+    { key: 'memoryBytes', label: 'Memory', format: value => (value / 1048576).toFixed(1) + ' MB' }
 ];
 
 const DEBUG_VIEWS = [
     { id: 'showPressure', key: 'pressure' },
-    { id: 'showCellTypes', key: 'cellTypes' }
+    { id: 'showCellTypes', key: 'cellTypes' },
+    { id: 'showVelocity', key: 'velocity' }
 ];
 
 function attachDebugPanel(doc, { enabled, views, onToggle, onViews })
@@ -2149,6 +2327,16 @@ function attachDebugPanel(doc, { enabled, views, onToggle, onViews })
 
     for (const row of DEBUG_ROWS) {
         const line = doc.createElement('div');
+
+        // A section marker is a label with no value, so the list can grow a
+        // second group without another block of markup.
+        if (row.section) {
+            line.className = 'stat section';
+            line.textContent = row.section;
+            body.append(line);
+            continue;
+        }
+
         line.className = row.sub ? 'stat sub' : 'stat';
 
         const label = doc.createElement('span');
@@ -2390,7 +2578,8 @@ const debugPanel = attachDebugPanel(document, {
     enabled: config.debug.enabled,
     views: {
         pressure: config.debug.showPressure,
-        cellTypes: config.debug.showCellTypes
+        cellTypes: config.debug.showCellTypes,
+        velocity: config.debug.showVelocity
     },
     onToggle: value => {
         config.debug.enabled = value;
@@ -2406,13 +2595,15 @@ const debugPanel = attachDebugPanel(document, {
             // controllable, so switching debug off switches the views off too.
             config.debug.showPressure = false;
             config.debug.showCellTypes = false;
-            debug.setViews({ pressure: false, cellTypes: false });
-            debugPanel.setViews({ pressure: false, cellTypes: false });
+            config.debug.showVelocity = false;
+            debug.setViews({ pressure: false, cellTypes: false, velocity: false });
+            debugPanel.setViews({ pressure: false, cellTypes: false, velocity: false });
         }
     },
     onViews: views => {
         config.debug.showPressure = views.pressure;
         config.debug.showCellTypes = views.cellTypes;
+        config.debug.showVelocity = views.velocity;
         debug.setViews(views);
         debug.updateField(scene);
     }

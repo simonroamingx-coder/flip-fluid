@@ -10,7 +10,9 @@
 // full snapshot of the state, write every view, compare.
 
 import { AIR_CELL, FLUID_CELL, SOLID_CELL } from '../src/core/constants.js';
-import { createPressureRange, writePressureColors, writeCellTypes } from '../src/debug/fields.js';
+import {
+    VELOCITY, createPressureRange, writeCellTypes, writePressureColors, writeVelocityVectors
+} from '../src/debug/fields.js';
 import { domainForViewport, loadRefactored, snapshot, stepRefactored } from './lib/harness.mjs';
 
 const results = [];
@@ -150,6 +152,62 @@ for (let xi = 0; xi < fluid.fNumX; xi++) {
 
 check('the field is the right way up', floorSolid === fluid.fNumX,
     `the first texture row is ${floorSolid} of ${fluid.fNumX} solid cells - the tank floor`);
+
+// ------------------------------------------------------------- velocity vectors
+
+const vertices = new Float32Array(4 * fluid.fNumCells);
+const vectors = writeVelocityVectors(fluid, vertices);
+
+let expected = 0;
+let misplaced = 0;
+let wrongLength = 0;
+let moved = 0;
+
+for (let xi = 1; xi < fluid.fNumX - 1; xi += VELOCITY.stride) {
+    for (let yi = 1; yi < fluid.fNumY - 1; yi += VELOCITY.stride) {
+        if (fluid.cellType[cellAt(xi, yi)] === FLUID_CELL)
+            expected++;
+    }
+}
+
+check('vectors are sampled, not one per cell', vectors === expected && vectors > 0 && vectors < fluid.fNumCells / 4,
+    `${vectors} vectors from ${fluid.fNumCells} cells, stride ${VELOCITY.stride}`);
+
+for (let index = 0; index < vectors; index++) {
+    const offset = 4 * index;
+    const x1 = vertices[offset];
+    const y1 = vertices[offset + 1];
+    const x2 = vertices[offset + 2];
+    const y2 = vertices[offset + 3];
+
+    // Starts at the centre of a fluid cell: the arrow belongs to a cell the solver
+    // actually has a velocity for.
+    const xi = Math.round(x1 / fluid.h - 0.5);
+    const yi = Math.round(y1 / fluid.h - 0.5);
+    if (fluid.cellType[cellAt(xi, yi)] !== FLUID_CELL)
+        misplaced++;
+
+    // Length is the cell's velocity times the display scale, where the cell's
+    // velocity is the mean of the two faces bounding it in each direction.
+    const cell = cellAt(xi, yi);
+    const ux = 0.5 * (fluid.u[cell] + fluid.u[(xi + 1) * fluid.fNumY + yi]);
+    const vy = 0.5 * (fluid.v[cell] + fluid.v[cell + 1]);
+    const speed = Math.hypot(ux, vy);
+    const length = Math.hypot(x2 - x1, y2 - y1);
+    if (Math.abs(length - speed * VELOCITY.scale) > 1e-4)
+        wrongLength++;
+    if (length > 1e-6)
+        moved++;
+}
+
+check('vectors belong to fluid cells', misplaced === 0,
+    `${vectors} vectors, ${expected} fluid cells sampled, ${misplaced} misplaced`);
+
+check('vector length is speed times the scale', wrongLength === 0,
+    wrongLength ? `${wrongLength} vectors with the wrong length` : `scale ${VELOCITY.scale}`);
+
+check('the vectors show motion', moved > vectors * 0.2,
+    `${moved} of ${vectors} vectors have a length`);
 
 // ------------------------------------------------------------------- report
 

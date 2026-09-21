@@ -8,7 +8,7 @@
 import { createShader, getLocations } from './glUtils.js';
 import {
     pointVertexShader, pointFragmentShader, meshVertexShader, meshFragmentShader,
-    fieldVertexShader, fieldFragmentShader
+    fieldVertexShader, fieldFragmentShader, lineVertexShader, lineFragmentShader
 } from './shaders.js';
 
 const NUM_SEGS = 50;
@@ -25,9 +25,11 @@ export class Renderer
         this.pointShader = null;
         this.meshShader = null;
         this.fieldShader = null;
+        this.lineShader = null;
         this.pointLocations = null;
         this.meshLocations = null;
         this.fieldLocations = null;
+        this.lineLocations = null;
 
         this.pointVertexBuffer = null;
         this.pointColorBuffer = null;
@@ -36,6 +38,7 @@ export class Renderer
         this.diskVertBuffer = null;
         this.diskIdBuffer = null;
         this.fieldQuadBuffer = null;
+        this.lineBuffer = null;
         this.fieldTexture = null;
         this.fieldTextureSize = { width: 0, height: 0 };
     }
@@ -51,6 +54,7 @@ export class Renderer
             this.pointShader = createShader(gl, pointVertexShader, pointFragmentShader);
             this.meshShader = createShader(gl, meshVertexShader, meshFragmentShader);
             this.fieldShader = createShader(gl, fieldVertexShader, fieldFragmentShader);
+            this.lineShader = createShader(gl, lineVertexShader, lineFragmentShader);
 
             this.pointLocations = getLocations(
                 gl, this.pointShader,
@@ -66,6 +70,11 @@ export class Renderer
                 gl, this.fieldShader,
                 ['domainSize', 'field'],
                 ['attrPosition', 'attrUV']);
+
+            this.lineLocations = getLocations(
+                gl, this.lineShader,
+                ['domainSize', 'color'],
+                ['attrPosition']);
         }
 
         if (!this.fieldTexture) {
@@ -148,6 +157,8 @@ export class Renderer
         gl.bindBuffer(gl.ARRAY_BUFFER, this.fieldQuadBuffer);
         gl.bufferData(gl.ARRAY_BUFFER, quad, gl.STATIC_DRAW);
         gl.bindBuffer(gl.ARRAY_BUFFER, null);
+
+        this.lineBuffer = gl.createBuffer();
     }
 
     disposeBuffers()
@@ -177,10 +188,13 @@ export class Renderer
 
         gl.viewport(0, 0, this.canvas.width, this.canvas.height);
 
-        if (field)
-            this.drawField(field.colors, fluid);
+        if (field && field.texture)
+            this.drawField(field.texture, fluid);
         else if (scene.showGrid)
             this.drawCells(fluid.cellColor, fluid, 0.9 * fluid.h / this.simWidth * this.canvas.width);
+
+        if (field && field.lines)
+            this.drawLines(field.lines.vertices, field.lines.count);
 
         if (scene.showParticles)
             this.drawParticles(fluid);
@@ -256,6 +270,33 @@ export class Renderer
         gl.disableVertexAttribArray(loc.attributes.attrUV);
         gl.bindBuffer(gl.ARRAY_BUFFER, null);
         gl.bindTexture(gl.TEXTURE_2D, null);
+    }
+
+    // Velocity vectors, as line segments supplied by the debug layer. Green, so
+    // they read against both the red pressure field and the blue cell view, and
+    // do not get mistaken for the white particles.
+    drawLines(vertices, count)
+    {
+        if (!count)
+            return;
+
+        const gl = this.gl;
+        const loc = this.lineLocations;
+
+        gl.useProgram(this.lineShader);
+        gl.uniform2f(loc.uniforms.domainSize, this.simWidth, this.simHeight);
+        gl.uniform3f(loc.uniforms.color, 0.25, 1.0, 0.45);
+
+        gl.bindBuffer(gl.ARRAY_BUFFER, this.lineBuffer);
+        gl.bufferData(gl.ARRAY_BUFFER, vertices.subarray(0, count * 2), gl.DYNAMIC_DRAW);
+
+        gl.enableVertexAttribArray(loc.attributes.attrPosition);
+        gl.vertexAttribPointer(loc.attributes.attrPosition, 2, gl.FLOAT, false, 0, 0);
+
+        gl.drawArrays(gl.LINES, 0, count);
+
+        gl.disableVertexAttribArray(loc.attributes.attrPosition);
+        gl.bindBuffer(gl.ARRAY_BUFFER, null);
     }
 
     drawParticles(fluid)

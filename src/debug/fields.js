@@ -96,3 +96,44 @@ export function writeCellTypes(fluid, colors)
         }
     }
 }
+
+// Velocity vectors, sampled on a stride so a fine grid does not turn into a mat
+// of arrows, and drawn from the cell centre outwards along the average of the
+// faces that bound it. In this solver u lives on the left face of a cell and v on
+// the bottom one, so the cell's own velocity is the mean of its two faces in each
+// direction. Only fluid cells get one: an arrow floating in the air would be a
+// velocity the solver never computed.
+// Sampling density and arrow length. These are the two knobs section 21 of the
+// specification mentions; they are constants for now, and would be sliders if
+// the view grew a settings row of its own.
+export const VELOCITY = { stride: 5, scale: 0.2 };
+
+export function writeVelocityVectors(fluid, vertices, options = VELOCITY)
+{
+    const n = fluid.fNumY;
+    const h = fluid.h;
+    let written = 0;
+    let vectors = 0;
+
+    for (let xi = 1; xi < fluid.fNumX - 1; xi += options.stride) {
+        for (let yi = 1; yi < fluid.fNumY - 1; yi += options.stride) {
+            const cell = xi * n + yi;
+            if (fluid.cellType[cell] !== FLUID_CELL)
+                continue;
+
+            const ux = 0.5 * (fluid.u[cell] + fluid.u[(xi + 1) * n + yi]);
+            const vy = 0.5 * (fluid.v[cell] + fluid.v[cell + 1]);
+
+            const x = (xi + 0.5) * h;
+            const y = (yi + 0.5) * h;
+
+            vertices[written++] = x;
+            vertices[written++] = y;
+            vertices[written++] = x + ux * options.scale;
+            vertices[written++] = y + vy * options.scale;
+            vectors++;
+        }
+    }
+
+    return vectors;
+}

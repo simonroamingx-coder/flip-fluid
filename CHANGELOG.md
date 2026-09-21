@@ -7,9 +7,9 @@ Cutting a release is described in [WORKFLOW.md](WORKFLOW.md).
 
 ## v1.1.0 - Settings and debug panel
 
-**In progress, not released yet.** Specification: [docs/v1.1.0-settings-debug-panel.md](docs/v1.1.0-settings-debug-panel.md)
+**Complete, ready to release.** Specification: [docs/v1.1.0-settings-debug-panel.md](docs/v1.1.0-settings-debug-panel.md)
 
-Landed so far:
+Everything the specification asks for:
 
 - **Settings panel** with the particle count. The count is not a free parameter
   in this scenario, so `src/core/scenarios.js` solves for the grid resolution
@@ -39,6 +39,15 @@ Landed so far:
   every frame - 56 updates a second at 58 fps, measured, against 60 fps with no
   view. Recomputing them at the panel's rate was the first attempt, and a field
   that steps seven times a second reads as stutter however cheap it is.
+- **Velocity vectors**, sampled every fifth cell so a fine grid does not become a
+  mat of arrows, each drawn from the centre of a fluid cell along the mean of the
+  faces bounding it in the solver's own `u` and `v`. Vectors draw over whichever
+  field is showing, which is the combination worth having. Sampling density and
+  arrow length are the two knobs section 21 mentions; they are constants for now.
+- **Advanced inspection**: the time step, grid resolution, pressure iterations,
+  FLIP ratio and memory footprint, grouped as "Solver" in the panel.
+  `FlipFluid.byteSize()` reports the solver's own array footprint by walking its
+  own properties, so there is no list of arrays to keep in step with the code.
 - `src/core/config.js` holds user settings, apart from the live scene state.
 - The default path is untouched: with no configured count the scenario uses the
   original resolution, and the behaviour baseline still matches v1.0.0 field for
@@ -47,8 +56,8 @@ Landed so far:
   rebuild, run the full verification, commit, tag, push, and publish a GitHub
   release with the generated `index.html` attached under a versioned name.
 
-Still to come: velocity vectors, which need new geometry rather than another
-per-cell colouring, and advanced runtime inspection.
+Every acceptance criterion in section 40 is met, and each is backed by a check
+rather than by having looked at it once.
 
 ## v1.0.0 - First versioned release
 

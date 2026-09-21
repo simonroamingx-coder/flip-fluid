@@ -169,30 +169,36 @@ function panelScript()
             input.dispatchEvent(new Event('change', { bubbles: true }));
         };
 
-        const picture = async (pressure, cellTypes) => {
+        const picture = async (pressure, cellTypes, velocity) => {
             setView('showPressure', pressure);
             setView('showCellTypes', cellTypes);
+            setView('showVelocity', velocity);
             await wait(300);
             entry.draw();
             return document.getElementById('myCanvas').toDataURL('image/png');
         };
 
-        const plain = await picture(false, false);
-        const pressureView = await picture(true, false);
-        const cellsView = await picture(false, true);
+        const plain = await picture(false, false, false);
+        const pressureView = await picture(true, false, false);
+        const cellsView = await picture(false, true, false);
+        const velocityView = await picture(false, false, true);
 
         const views = {
             digestUnchanged: digestBefore === stateDigest(entry.scene),
             pressureDiffers: pressureView !== plain,
-            cellsDiffer: cellsView !== plain && cellsView !== pressureView
+            cellsDiffer: cellsView !== plain && cellsView !== pressureView,
+            velocityDiffers: velocityView !== plain && velocityView !== pressureView
+                && velocityView !== cellsView
         };
 
         // Pictures for the record, with the particle overlay off: the fields are
         // what these views are for, and the particles sit right on top of them.
         const hadParticles = entry.scene.showParticles;
         entry.scene.showParticles = false;
-        views.pressureField = await picture(true, false);
-        views.cellsField = await picture(false, true);
+        views.pressureField = await picture(true, false, false);
+        views.cellsField = await picture(false, true, false);
+        // Vectors over the pressure field: the combination the views are for.
+        views.velocityField = await picture(true, false, true);
         entry.scene.showParticles = hadParticles;
 
         // How often the field is recomputed, against how often we are drawing.
@@ -210,6 +216,7 @@ function panelScript()
         // And what the view costs: frame rate with it on against with it off.
         setView('showPressure', false);
         setView('showCellTypes', false);
+        setView('showVelocity', false);
         await wait(900);
         views.fpsWithoutField = entry.debug.stats.fps;
 
@@ -664,6 +671,8 @@ try {
         Buffer.from(standalone.settings.views.pressureField.split(',')[1], 'base64'));
     await writeFile(join(artifacts, 'view-cell-types.png'),
         Buffer.from(standalone.settings.views.cellsField.split(',')[1], 'base64'));
+    await writeFile(join(artifacts, 'view-velocity.png'),
+        Buffer.from(standalone.settings.views.velocityField.split(',')[1], 'base64'));
 
     const checks = [];
     const check = (name, ok, detail) => checks.push({ name, ok, detail });
@@ -784,8 +793,15 @@ try {
 
     check('debug views change the picture',
         [refactored, standalone].every(page =>
-            page.settings.views.pressureDiffers && page.settings.views.cellsDiffer),
-        'pressure and cell types each draw something different from the plain view, and from each other');
+            page.settings.views.pressureDiffers && page.settings.views.cellsDiffer
+            && page.settings.views.velocityDiffers),
+        'pressure, cell types and velocity each draw something different from the plain view, and from each other');
+
+    check('debug panel reports the solver settings',
+        [refactored, standalone].every(page =>
+            ['Solver', 'Time Step', 'Grid Resolution', 'Pressure Iters', 'FLIP Ratio', 'Memory']
+                .every(label => page.settings.running.text.includes(label))),
+        'time step, grid resolution, pressure iterations, FLIP ratio and memory are on screen');
 
     check('debug views do not change the simulation',
         [refactored, standalone].every(page => page.settings.views.digestUnchanged),

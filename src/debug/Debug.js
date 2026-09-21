@@ -10,7 +10,9 @@
 // The panel formats what is here. It does not compute anything.
 
 import { FLUID_CELL } from '../core/constants.js';
-import { createPressureRange, writePressureColors, writeCellTypes } from './fields.js';
+import {
+    VELOCITY, createPressureRange, writeCellTypes, writePressureColors, writeVelocityVectors
+} from './fields.js';
 
 export function createRuntimeStats()
 {
@@ -32,7 +34,14 @@ export function createRuntimeStats()
         particleCount: 0,
         activeParticles: 0,
         gridCells: 0,
-        fluidCells: 0
+        fluidCells: 0,
+
+        // the solver's own settings, as they stand
+        dt: 0,
+        gridResolution: 0,
+        pressureIters: 0,
+        flipRatio: 0,
+        memoryBytes: 0
     };
 }
 
@@ -65,9 +74,11 @@ export function createDebug()
 
     // Which of the debug views is showing. Kept here rather than read from the
     // configuration each frame, so the renderer is never asking the UI anything.
-    let views = { pressure: false, cellTypes: false };
+    let views = { pressure: false, cellTypes: false, velocity: false };
     let pressureColors = null;
     let cellTypeColors = null;
+    let velocityVertices = null;
+    let velocityCount = 0;
     const pressureRange = createPressureRange();
     let fieldUpdates = 0;
 
@@ -136,6 +147,12 @@ export function createDebug()
         stats.activeParticles = fluid.numParticles;
         stats.gridCells = fluid.fNumCells;
         stats.fluidCells = fluidCells;
+
+        stats.dt = scene.dt;
+        stats.gridResolution = scene.gridResolution || 0;
+        stats.pressureIters = scene.numPressureIters;
+        stats.flipRatio = scene.flipRatio;
+        stats.memoryBytes = fluid.byteSize();
     }
 
     function ensureBuffers(fluid)
@@ -146,6 +163,10 @@ export function createDebug()
 
         pressureColors = new Uint8Array(needed);
         cellTypeColors = new Uint8Array(needed);
+
+        const samples = Math.ceil(fluid.fNumX / VELOCITY.stride)
+            * Math.ceil(fluid.fNumY / VELOCITY.stride);
+        velocityVertices = new Float32Array(4 * samples);   // two vertices per vector
     }
 
     // Recomputes the colour buffer for whichever view is on. This runs every
@@ -159,7 +180,7 @@ export function createDebug()
     function updateField(scene)
     {
         const fluid = scene && scene.fluid;
-        if (!fluid || !enabled || (!views.pressure && !views.cellTypes))
+        if (!fluid || !enabled || (!views.pressure && !views.cellTypes && !views.velocity))
             return;
 
         fluid.classifyCells();
@@ -170,6 +191,10 @@ export function createDebug()
         if (views.cellTypes)
             writeCellTypes(fluid, cellTypeColors);
 
+        velocityCount = views.velocity
+            ? writeVelocityVectors(fluid, velocityVertices)
+            : 0;
+
         fieldUpdates++;
     }
 
@@ -178,14 +203,24 @@ export function createDebug()
     // a stale buffer would be uploaded for the wrong number of vertices.
     function fieldView(scene)
     {
-        if (!enabled || !scene.fluid)
+        const fluid = scene.fluid;
+        if (!enabled || !fluid)
             return null;
 
+        const view = {};
+
+        // At most one colour field: pressure and cell types are both the whole
+        // grid painted, so showing both would just hide one behind the other.
         const colors = views.pressure ? pressureColors : views.cellTypes ? cellTypeColors : null;
-        if (!colors || colors.length !== 3 * scene.fluid.fNumCells)
-            return null;
+        if (colors && colors.length === 3 * fluid.fNumCells)
+            view.texture = colors;
 
-        return { colors };
+        // Vectors are lines over the top of whatever field is showing, which is
+        // the useful combination rather than a conflict.
+        if (views.velocity && velocityCount && velocityVertices)
+            view.lines = { vertices: velocityVertices, count: velocityCount };
+
+        return view.texture || view.lines ? view : null;
     }
 
     return {
@@ -206,9 +241,13 @@ export function createDebug()
 
         setViews(value)
         {
-            views = { pressure: Boolean(value.pressure), cellTypes: Boolean(value.cellTypes) };
+            views = {
+                pressure: Boolean(value.pressure),
+                cellTypes: Boolean(value.cellTypes),
+                velocity: Boolean(value.velocity)
+            };
             if (!enabled)
-                views = { pressure: false, cellTypes: false };
+                views = { pressure: false, cellTypes: false, velocity: false };
         },
 
         get enabled()

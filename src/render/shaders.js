@@ -101,3 +101,27 @@ export const fieldFragmentShader = `
         gl_FragColor = vec4(texture2D(field, fragUV).rgb, 1.0);
     }
 `;
+
+// Velocity vectors are line segments, so they need their own program: the point
+// and mesh shaders both draw their own geometry, not a caller-supplied pair of
+// endpoints.
+export const lineVertexShader = `
+    attribute vec2 attrPosition;
+    uniform vec2 domainSize;
+
+    void main() {
+    vec4 screenTransform =
+        vec4(2.0 / domainSize.x, 2.0 / domainSize.y, -1.0, -1.0);
+    gl_Position =
+        vec4(attrPosition * screenTransform.xy + screenTransform.zw, 0.0, 1.0);
+    }
+`;
+
+export const lineFragmentShader = `
+    precision mediump float;
+    uniform vec3 color;
+
+    void main() {
+        gl_FragColor = vec4(color, 1.0);
+    }
+`;

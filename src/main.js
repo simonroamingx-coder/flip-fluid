@@ -74,7 +74,8 @@ const debugPanel = attachDebugPanel(document, {
     enabled: config.debug.enabled,
     views: {
         pressure: config.debug.showPressure,
-        cellTypes: config.debug.showCellTypes
+        cellTypes: config.debug.showCellTypes,
+        velocity: config.debug.showVelocity
     },
     onToggle: value => {
         config.debug.enabled = value;
@@ -90,13 +91,15 @@ const debugPanel = attachDebugPanel(document, {
             // controllable, so switching debug off switches the views off too.
             config.debug.showPressure = false;
             config.debug.showCellTypes = false;
-            debug.setViews({ pressure: false, cellTypes: false });
-            debugPanel.setViews({ pressure: false, cellTypes: false });
+            config.debug.showVelocity = false;
+            debug.setViews({ pressure: false, cellTypes: false, velocity: false });
+            debugPanel.setViews({ pressure: false, cellTypes: false, velocity: false });
         }
     },
     onViews: views => {
         config.debug.showPressure = views.pressure;
         config.debug.showCellTypes = views.cellTypes;
+        config.debug.showVelocity = views.velocity;
         debug.setViews(views);
         debug.updateField(scene);
     }

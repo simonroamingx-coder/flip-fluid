@@ -106,6 +106,12 @@ body {
 	padding-left: 10px;
 	opacity: 0.85;
 }
+#debugStats .stat.section {
+	margin-top: 6px;
+	padding-top: 6px;
+	border-top: 1px solid #3a3a3a;
+	color: #9a9a9a;
+}
 
 /* The original demo carried this rule for a button it never had. The settings
    panel is the first thing here to need one. */

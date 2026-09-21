@@ -405,6 +405,22 @@ export class FlipFluid
         }
     }
 
+    // Bytes held by this solver's arrays. It walks its own properties, so there
+    // is no list of arrays to keep in step with the code, and it is a fact about
+    // the solver rather than something a debug view has to guess at.
+    byteSize()
+    {
+        var total = 0;
+
+        for (var key of Object.keys(this)) {
+            var value = this[key];
+            if (ArrayBuffer.isView(value))
+                total += value.byteLength;
+        }
+
+        return total;
+    }
+
     solveIncompressibility(numIters, dt, overRelaxation, compensateDrift = true)
     {
         this.p.fill(0.0);
