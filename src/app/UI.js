@@ -69,3 +69,69 @@ export function attachSettings(doc, { particleCount, onApply })
 
     return { report: text => { actual.textContent = text; } };
 }
+
+// The debug panel. The rows are described once here and the values are written
+// into them when the loop hands over a set of statistics; nothing in this file
+// measures or computes anything.
+const DEBUG_ROWS = [
+    { key: 'fps', label: 'FPS', format: value => value.toFixed(1) },
+    { key: 'frameTime', label: 'Frame Time', format: value => value.toFixed(1) + ' ms' },
+    { key: 'simulationTime', label: 'Simulation', format: value => value.toFixed(1) + ' ms' },
+    { key: 'renderTime', label: 'Render', format: value => value.toFixed(1) + ' ms' },
+    { key: 'particleCount', label: 'Particles', format: formatCount },
+    { key: 'activeParticles', label: 'Active', format: formatCount },
+    { key: 'gridCells', label: 'Grid Cells', format: formatCount },
+    { key: 'fluidCells', label: 'Fluid Cells', format: formatCount }
+];
+
+export function attachDebugPanel(doc, { enabled, onToggle })
+{
+    const checkbox = doc.getElementById('debugEnabled');
+    const body = doc.getElementById('debugStats');
+
+    if (!checkbox || !body)
+        return null;
+
+    const cells = new Map();
+
+    for (const row of DEBUG_ROWS) {
+        const line = doc.createElement('div');
+        line.className = 'stat';
+
+        const label = doc.createElement('span');
+        label.textContent = row.label;
+
+        const value = doc.createElement('span');
+        value.className = 'value';
+        value.textContent = row.format(0);
+
+        line.append(label, value);
+        body.append(line);
+        cells.set(row.key, { format: row.format, element: value });
+    }
+
+    checkbox.checked = enabled;
+    body.hidden = !enabled;
+
+    const panel = {
+        update(stats)
+        {
+            for (const [key, cell] of cells)
+                cell.element.textContent = cell.format(stats[key]);
+        },
+
+        setEnabled(value)
+        {
+            checkbox.checked = value;
+            body.hidden = !value;
+            if (!value) {
+                for (const cell of cells.values())
+                    cell.element.textContent = cell.format(0);
+            }
+        }
+    };
+
+    checkbox.addEventListener('change', () => onToggle(checkbox.checked));
+
+    return panel;
+}

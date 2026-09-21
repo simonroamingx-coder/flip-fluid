@@ -16,6 +16,13 @@ Landed so far:
   that produces it, and the panel reports what it actually got next to what was
   asked for. Applying rebuilds the scene in place and re-initialises the
   renderer, whose buffers are sized from the grid and the particle count.
+- **Debug panel** with FPS, frame time, simulation and render time, particle
+  counts and grid statistics. It collects nothing while it is switched off, it
+  is refreshed about seven times a second rather than every frame, and every
+  number comes from the solver's own arrays: `classifyCells()` was lifted out of
+  `transferVelocities()` so that a statistic read while the simulation is paused
+  describes the same classification the next step would make, instead of
+  counting an unclassified grid. The solver still knows nothing about the panel.
 - `src/core/config.js` holds user settings, apart from the live scene state.
 - The default path is untouched: with no configured count the scenario uses the
   original resolution, and the behaviour baseline still matches v1.0.0 field for
@@ -24,8 +31,9 @@ Landed so far:
   rebuild, run the full verification, commit, tag, push, and publish a GitHub
   release with the generated `index.html` attached under a versioned name.
 
-Still to come: the debug panel, the profiler, grid statistics, and the debug
-visualisations.
+Still to come: the per-stage profiler (particle update, particle to grid,
+pressure solve, grid to particle, collision), the debug visualisations, and
+advanced runtime inspection.
 
 ## v1.0.0 - First versioned release
 

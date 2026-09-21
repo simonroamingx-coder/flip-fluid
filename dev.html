@@ -67,15 +67,23 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 <br>
 	<canvas id="myCanvas"></canvas>
 
-	<div id = "settings">
-		<div class = "panel-title">Settings</div>
-		<div class = "field">
-			<label for = "particleSlider">Particle Count</label>
-			<span id = "particleValue">26,000</span>
+	<div id = "panels">
+		<div id = "settings" class = "panel">
+			<div class = "panel-title">Settings</div>
+			<div class = "field">
+				<label for = "particleSlider">Particle Count</label>
+				<span id = "particleValue">26,000</span>
+			</div>
+			<input type = "range" id = "particleSlider" class = "slider" min = "1000" max = "50000" step = "1000" value = "26000">
+			<button id = "applyParticles" class = "button">Apply / Restart</button>
+			<div id = "particleActual"></div>
 		</div>
-		<input type = "range" id = "particleSlider" class = "slider" min = "1000" max = "50000" step = "1000" value = "26000">
-		<button id = "applyParticles" class = "button">Apply / Restart</button>
-		<div id = "particleActual"></div>
+
+		<div id = "debug" class = "panel">
+			<div class = "panel-title">Debug</div>
+			<label class = "toggle"><input type = "checkbox" id = "debugEnabled"> Enable Debug</label>
+			<div id = "debugStats" hidden></div>
+		</div>
 	</div>
 
 	<span id = "version"></span>

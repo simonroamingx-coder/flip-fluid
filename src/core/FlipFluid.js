@@ -292,18 +292,7 @@ export class FlipFluid
             this.u.fill(0.0);
             this.v.fill(0.0);
 
-            for (var i = 0; i < this.fNumCells; i++)
-                this.cellType[i] = this.s[i] == 0.0 ? SOLID_CELL : AIR_CELL;
-
-            for (var i = 0; i < this.numParticles; i++) {
-                var x = this.particlePos[2 * i];
-                var y = this.particlePos[2 * i + 1];
-                var xi = clamp(Math.floor(x * h1), 0, this.fNumX - 1);
-                var yi = clamp(Math.floor(y * h1), 0, this.fNumY - 1);
-                var cellNr = xi * n + yi;
-                if (this.cellType[cellNr] == AIR_CELL)
-                    this.cellType[cellNr] = FLUID_CELL;
-            }
+            this.classifyCells();
         }
 
         for (var component = 0; component < 2; component++) {
@@ -390,6 +379,29 @@ export class FlipFluid
                     }
                 }
             }
+        }
+    }
+
+    // Marks every cell solid, air or fluid from the current particle positions.
+    // The solver calls this at the start of each step; the debug panel calls the
+    // same method, so a statistic read while the simulation is paused describes
+    // the same classification the next step would make rather than an empty grid.
+    classifyCells()
+    {
+        var n = this.fNumY;
+        var h1 = this.fInvSpacing;
+
+        for (var i = 0; i < this.fNumCells; i++)
+            this.cellType[i] = this.s[i] == 0.0 ? SOLID_CELL : AIR_CELL;
+
+        for (var i = 0; i < this.numParticles; i++) {
+            var x = this.particlePos[2 * i];
+            var y = this.particlePos[2 * i + 1];
+            var xi = clamp(Math.floor(x * h1), 0, this.fNumX - 1);
+            var yi = clamp(Math.floor(y * h1), 0, this.fNumY - 1);
+            var cellNr = xi * n + yi;
+            if (this.cellType[cellNr] == AIR_CELL)
+                this.cellType[cellNr] = FLUID_CELL;
         }
     }
 

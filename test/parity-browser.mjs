@@ -64,7 +64,7 @@ const DIGEST_JS = `
 // Elements that are deliberate additions to the page rather than part of the
 // original. They are recorded, then removed before the DOM and screenshot are
 // compared, so everything else is still checked exactly against the original.
-const ADDITIVE_IDS = ['version', 'settings'];
+const ADDITIVE_IDS = ['version', 'panels'];
 
 // Both snippets do exactly the same thing; only the entry point differs.
 function driveScript(entry)
@@ -106,23 +106,40 @@ function driveScript(entry)
     })()`;
 }
 
-// Exercises the settings panel for real: move the slider, click Apply, and see
-// what the scene and the panel say afterwards. Pages without a panel report
+// Exercises the panels for real: check debug starts off, switch it on and read
+// the numbers, then move the particle slider and press Apply and check that both
+// panels follow the rebuilt scene. Pages without the panels report
 // supported: false, which is what the original page should do.
-function settingsScript()
+function panelScript()
 {
-    return `(() => {
+    return `(async () => {
         const slider = document.getElementById('particleSlider');
         const apply = document.getElementById('applyParticles');
-        if (!slider || !apply)
+        const toggle = document.getElementById('debugEnabled');
+        const stats = document.getElementById('debugStats');
+        if (!slider || !apply || !toggle || !stats)
             return JSON.stringify({ supported: false });
 
         const entry = window.__flip;
-        const before = entry.scene.fluid.numParticles;
+        const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
 
+        // debug is off until asked for
+        const enabledBefore = toggle.checked;
+        const hiddenBefore = stats.hidden;
+
+        toggle.checked = true;
+        toggle.dispatchEvent(new Event('change', { bubbles: true }));
+        await wait(500);
+
+        const debugStats = { ...entry.debug.stats };
+        const debugText = stats.textContent;
+
+        // now rebuild the scene and see whether both panels follow it
+        const before = entry.scene.fluid.numParticles;
         slider.value = '12000';
         slider.dispatchEvent(new Event('input', { bubbles: true }));
         apply.click();
+        await wait(500);
         entry.draw();
 
         return JSON.stringify({
@@ -133,6 +150,18 @@ function settingsScript()
             resolution: entry.scene.gridResolution,
             label: document.getElementById('particleValue').textContent,
             report: document.getElementById('particleActual').textContent,
+            debug: {
+                enabledBefore: enabledBefore,
+                hiddenBefore: hiddenBefore,
+                stats: debugStats,
+                text: debugText
+            },
+            after: {
+                active: entry.scene.fluid.numParticles,
+                resolution: entry.scene.gridResolution,
+                particlesInPanel: entry.debug.stats.activeParticles,
+                text: stats.textContent
+            },
             canvas: document.getElementById('myCanvas').toDataURL('image/png')
         });
     })()`;
@@ -365,9 +394,9 @@ async function openPage(cdp, url, entry)
     }, 20000, entry);
 
     const settings = JSON.parse((await cdp.send('Runtime.evaluate', {
-        expression: settingsScript(), returnByValue: true
+        expression: panelScript(), returnByValue: true, awaitPromise: true
     })).result.value);
-    console.log('  settings exercised');
+    console.log('  panels exercised');
 
     const settingsShot = (await cdp.send('Page.captureScreenshot', { format: 'png' })).data;
 
@@ -604,6 +633,41 @@ try {
     check('rebuilt scene renders',
         [refactored, standalone].every(page => !blank(page.settings.canvas)),
         'renderer buffers follow the new grid and particle sizes, so the scene still draws');
+
+    check('debug panel present',
+        refactored.settings.debug && standalone.settings.debug && !original.settings.debug,
+        'dev.html and index.html have it; the original does not');
+
+    check('debug is off until asked for',
+        [refactored, standalone].every(page =>
+            page.settings.debug.enabledBefore === false && page.settings.debug.hiddenBefore === true),
+        'nothing is collected or shown until the toggle is switched on');
+
+    check('debug shows runtime numbers',
+        [refactored, standalone].every(page => {
+            const stats = page.settings.debug.stats;
+            return stats.fps > 0 && stats.frameTime > 0
+                && stats.activeParticles > 0 && stats.gridCells > 0
+                // fluid cells must be a real subset, not the whole grid: an
+                // unclassified grid reads as all-fluid because FLUID_CELL is 0
+                && stats.fluidCells > 0 && stats.fluidCells < stats.gridCells * 0.95;
+        }),
+        `${refactored.settings.debug.stats.fps.toFixed(1)} fps, `
+        + `${refactored.settings.debug.stats.frameTime.toFixed(1)} ms frame, `
+        + `${withCommas(refactored.settings.debug.stats.fluidCells)} fluid of `
+        + `${withCommas(refactored.settings.debug.stats.gridCells)} cells`);
+
+    check('debug panel shows those numbers',
+        [refactored, standalone].every(page =>
+            page.settings.debug.text.includes('FPS') && page.settings.debug.text.includes('Fluid Cells')),
+        'the panel is reporting, not just the object behind it');
+
+    check('panels follow a scene rebuild',
+        [refactored, standalone].every(page =>
+            page.settings.after.particlesInPanel === page.settings.after.active &&
+            page.settings.after.active === page.settings.actual),
+        `after Apply the panel reads ${withCommas(refactored.settings.after.active)} particles, `
+        + `the scene has the same`);
 
     const probeDiffs = new Map();
 

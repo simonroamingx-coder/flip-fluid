@@ -57,26 +57,31 @@ body {
 	user-select: none;
 }
 
-/* Settings panel. Fixed, so it never changes the canvas size - which is
-   measured from the window and decides the simulation domain. */
-#settings {
+/* Panels. Fixed, so they never change the canvas size - which is measured from
+   the window and decides the simulation domain. */
+#panels {
 	position: fixed;
 	top: 32px;
 	right: 8px;
 	width: 250px;
+	display: flex;
+	flex-direction: column;
+	gap: 8px;
+	z-index: 10;
+}
+.panel {
 	padding: 10px;
 	background: rgba(28, 28, 28, 0.86);
 	color: #eaeaea;
 	font-size: 13px;
 	border: 1px solid #444;
 	border-radius: 4px;
-	z-index: 10;
 }
-#settings .panel-title {
+.panel-title {
 	font-weight: bold;
 	margin-bottom: 8px;
 }
-#settings .field {
+.field {
 	display: flex;
 	justify-content: space-between;
 	margin-bottom: 6px;
@@ -94,6 +99,24 @@ body {
 	margin-top: 8px;
 	color: #9a9a9a;
 	min-height: 2.6em;
+}
+
+/* Debug panel */
+.toggle {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+}
+#debugStats {
+	margin-top: 8px;
+}
+#debugStats .stat {
+	display: flex;
+	justify-content: space-between;
+	padding: 1px 0;
+}
+#debugStats .value {
+	color: #b8d8ff;
 }
 
 /* The original demo carried this rule for a button it never had. The settings
@@ -147,15 +170,23 @@ body {
 <br>
 	<canvas id="myCanvas"></canvas>
 
-	<div id = "settings">
-		<div class = "panel-title">Settings</div>
-		<div class = "field">
-			<label for = "particleSlider">Particle Count</label>
-			<span id = "particleValue">26,000</span>
+	<div id = "panels">
+		<div id = "settings" class = "panel">
+			<div class = "panel-title">Settings</div>
+			<div class = "field">
+				<label for = "particleSlider">Particle Count</label>
+				<span id = "particleValue">26,000</span>
+			</div>
+			<input type = "range" id = "particleSlider" class = "slider" min = "1000" max = "50000" step = "1000" value = "26000">
+			<button id = "applyParticles" class = "button">Apply / Restart</button>
+			<div id = "particleActual"></div>
 		</div>
-		<input type = "range" id = "particleSlider" class = "slider" min = "1000" max = "50000" step = "1000" value = "26000">
-		<button id = "applyParticles" class = "button">Apply / Restart</button>
-		<div id = "particleActual"></div>
+
+		<div id = "debug" class = "panel">
+			<div class = "panel-title">Debug</div>
+			<label class = "toggle"><input type = "checkbox" id = "debugEnabled"> Enable Debug</label>
+			<div id = "debugStats" hidden></div>
+		</div>
 	</div>
 
 	<span id = "version"></span>
@@ -531,18 +562,7 @@ class FlipFluid
             this.u.fill(0.0);
             this.v.fill(0.0);
 
-            for (var i = 0; i < this.fNumCells; i++)
-                this.cellType[i] = this.s[i] == 0.0 ? SOLID_CELL : AIR_CELL;
-
-            for (var i = 0; i < this.numParticles; i++) {
-                var x = this.particlePos[2 * i];
-                var y = this.particlePos[2 * i + 1];
-                var xi = clamp(Math.floor(x * h1), 0, this.fNumX - 1);
-                var yi = clamp(Math.floor(y * h1), 0, this.fNumY - 1);
-                var cellNr = xi * n + yi;
-                if (this.cellType[cellNr] == AIR_CELL)
-                    this.cellType[cellNr] = FLUID_CELL;
-            }
+            this.classifyCells();
         }
 
         for (var component = 0; component < 2; component++) {
@@ -629,6 +649,29 @@ class FlipFluid
                     }
                 }
             }
+        }
+    }
+
+    // Marks every cell solid, air or fluid from the current particle positions.
+    // The solver calls this at the start of each step; the debug panel calls the
+    // same method, so a statistic read while the simulation is paused describes
+    // the same classification the next step would make rather than an empty grid.
+    classifyCells()
+    {
+        var n = this.fNumY;
+        var h1 = this.fInvSpacing;
+
+        for (var i = 0; i < this.fNumCells; i++)
+            this.cellType[i] = this.s[i] == 0.0 ? SOLID_CELL : AIR_CELL;
+
+        for (var i = 0; i < this.numParticles; i++) {
+            var x = this.particlePos[2 * i];
+            var y = this.particlePos[2 * i + 1];
+            var xi = clamp(Math.floor(x * h1), 0, this.fNumX - 1);
+            var yi = clamp(Math.floor(y * h1), 0, this.fNumY - 1);
+            var cellNr = xi * n + yi;
+            if (this.cellType[cellNr] == AIR_CELL)
+                this.cellType[cellNr] = FLUID_CELL;
         }
     }
 
@@ -987,7 +1030,13 @@ function createConfig()
         // null means "whatever the scenario works out from the tank", which is
         // exactly what v1.0.0 did. A number means the user asked for a count,
         // and the scenario solves for the grid resolution that produces it.
-        particleCount: null
+        particleCount: null,
+
+        debug: {
+            // Collecting statistics while they are not being looked at would be
+            // work for nothing.
+            enabled: false
+        }
     };
 }
 
@@ -999,6 +1048,122 @@ function clampParticleCount(value)
 	__exports.PARTICLES = PARTICLES;
 	__exports.createConfig = createConfig;
 	__exports.clampParticleCount = clampParticleCount;
+};
+
+__mods["src/debug/Debug.js"] = function (__exports, __req) {
+"use strict";
+// Copyright 2022 Matthias Müller - Ten Minute Physics (MIT). See ../../LICENSE.
+//
+// Runtime statistics for the debug panel. Three rules shape this file:
+//
+//   - the solver never knows it exists, and this never touches the DOM
+//   - nothing is collected while it is disabled, so a normal run costs nothing
+//   - the numbers come from the solver's own arrays; there is no second
+//     representation of the simulation built just to display it
+//
+// The panel formats what is here. It does not compute anything.
+
+const { FLUID_CELL } = __req("src/core/constants.js");
+
+function createRuntimeStats()
+{
+    return {
+        fps: 0,
+        frameTime: 0,
+        simulationTime: 0,
+        renderTime: 0,
+        particleCount: 0,
+        activeParticles: 0,
+        gridCells: 0,
+        fluidCells: 0
+    };
+}
+
+// Frame time is smoothed, because a raw reading swings too widely to read:
+// 60, 59, 42, 60, 38. Nothing is hidden by this, it is the same number with the
+// jitter taken out.
+const SMOOTHING = 0.1;
+
+function createDebug()
+{
+    const stats = createRuntimeStats();
+    let enabled = false;
+    let previousFrame = 0;
+    let smoothedFrameTime = 0;
+
+    function reset()
+    {
+        Object.assign(stats, createRuntimeStats());
+        previousFrame = 0;
+        smoothedFrameTime = 0;
+    }
+
+    // Called once per animation frame, and only while enabled.
+    function recordFrame(now, simulationTime, renderTime)
+    {
+        if (previousFrame) {
+            const frameTime = now - previousFrame;
+            smoothedFrameTime = smoothedFrameTime
+                ? smoothedFrameTime + (frameTime - smoothedFrameTime) * SMOOTHING
+                : frameTime;
+
+            stats.frameTime = smoothedFrameTime;
+            stats.fps = smoothedFrameTime > 0 ? 1000 / smoothedFrameTime : 0;
+        }
+        previousFrame = now;
+
+        stats.simulationTime = simulationTime;
+        stats.renderTime = renderTime;
+    }
+
+    // Read from the solver's grid as it stands. This walks the cell array, so it
+    // is called when the panel refreshes rather than on every frame.
+    function refreshCounts(scene)
+    {
+        const fluid = scene.fluid;
+        if (!fluid)
+            return;
+
+        // The classification lives in the solver and only exists once a step has
+        // run, so it is brought up to date here rather than read as a grid of
+        // zeros - which would count every cell as fluid.
+        fluid.classifyCells();
+
+        let fluidCells = 0;
+        for (let i = 0; i < fluid.fNumCells; i++) {
+            if (fluid.cellType[i] === FLUID_CELL)
+                fluidCells++;
+        }
+
+        stats.particleCount = fluid.maxParticles;
+        stats.activeParticles = fluid.numParticles;
+        stats.gridCells = fluid.fNumCells;
+        stats.fluidCells = fluidCells;
+    }
+
+    return {
+        stats,
+
+        get enabled()
+        {
+            return enabled;
+        },
+
+        setEnabled(value)
+        {
+            enabled = Boolean(value);
+            if (!enabled)
+                reset();
+        },
+
+        reset,
+        recordFrame,
+        refreshCounts
+    };
+}
+
+	__exports.createRuntimeStats = createRuntimeStats;
+	__exports.createDebug = createDebug;
 };
 
 __mods["src/render/glUtils.js"] = function (__exports, __req) {
@@ -1557,9 +1722,76 @@ function attachSettings(doc, { particleCount, onApply })
     return { report: text => { actual.textContent = text; } };
 }
 
+// The debug panel. The rows are described once here and the values are written
+// into them when the loop hands over a set of statistics; nothing in this file
+// measures or computes anything.
+const DEBUG_ROWS = [
+    { key: 'fps', label: 'FPS', format: value => value.toFixed(1) },
+    { key: 'frameTime', label: 'Frame Time', format: value => value.toFixed(1) + ' ms' },
+    { key: 'simulationTime', label: 'Simulation', format: value => value.toFixed(1) + ' ms' },
+    { key: 'renderTime', label: 'Render', format: value => value.toFixed(1) + ' ms' },
+    { key: 'particleCount', label: 'Particles', format: formatCount },
+    { key: 'activeParticles', label: 'Active', format: formatCount },
+    { key: 'gridCells', label: 'Grid Cells', format: formatCount },
+    { key: 'fluidCells', label: 'Fluid Cells', format: formatCount }
+];
+
+function attachDebugPanel(doc, { enabled, onToggle })
+{
+    const checkbox = doc.getElementById('debugEnabled');
+    const body = doc.getElementById('debugStats');
+
+    if (!checkbox || !body)
+        return null;
+
+    const cells = new Map();
+
+    for (const row of DEBUG_ROWS) {
+        const line = doc.createElement('div');
+        line.className = 'stat';
+
+        const label = doc.createElement('span');
+        label.textContent = row.label;
+
+        const value = doc.createElement('span');
+        value.className = 'value';
+        value.textContent = row.format(0);
+
+        line.append(label, value);
+        body.append(line);
+        cells.set(row.key, { format: row.format, element: value });
+    }
+
+    checkbox.checked = enabled;
+    body.hidden = !enabled;
+
+    const panel = {
+        update(stats)
+        {
+            for (const [key, cell] of cells)
+                cell.element.textContent = cell.format(stats[key]);
+        },
+
+        setEnabled(value)
+        {
+            checkbox.checked = value;
+            body.hidden = !value;
+            if (!value) {
+                for (const cell of cells.values())
+                    cell.element.textContent = cell.format(0);
+            }
+        }
+    };
+
+    checkbox.addEventListener('change', () => onToggle(checkbox.checked));
+
+    return panel;
+}
+
 	__exports.TOGGLES = TOGGLES;
 	__exports.attachControls = attachControls;
 	__exports.attachSettings = attachSettings;
+	__exports.attachDebugPanel = attachDebugPanel;
 };
 
 __mods["src/app/loop.js"] = function (__exports, __req) {
@@ -1581,16 +1813,39 @@ function simulateOnce(scene)
     scene.frameNr++;
 }
 
-function startLoop(scene, renderer)
+// The frame loop. It owns the two stages it can measure - simulation and render -
+// and nothing else. Statistics are collected only while debug is enabled, and the
+// panel behind them is refreshed at a fixed rate instead of every frame, because
+// the simulation runs at 60 Hz and no one needs the DOM updated that often.
+function startLoop({ scene, renderer, debug, onSample, sampleIntervalMs = 150 })
 {
-    function update()
+    let lastSample = 0;
+
+    function update(now)
     {
+        const start = performance.now();
         simulateOnce(scene);
+        const afterSimulate = performance.now();
+
         renderer.draw(scene);
+        const afterDraw = performance.now();
+
+        if (debug && debug.enabled) {
+            debug.recordFrame(now, afterSimulate - start, afterDraw - afterSimulate);
+
+            if (onSample && now - lastSample >= sampleIntervalMs) {
+                lastSample = now;
+                debug.refreshCounts(scene);
+                onSample(debug.stats);
+            }
+        }
+
         requestAnimationFrame(update);
     }
 
-    update();
+    // The original draws one frame synchronously on load rather than waiting for
+    // the first animation frame, and that is kept.
+    update(performance.now());
 }
 
 	__exports.simulateOnce = simulateOnce;
@@ -1624,10 +1879,11 @@ const { createScene } = __req("src/core/scene.js");
 const { setupScene } = __req("src/core/scenarios.js");
 const { setObstacle } = __req("src/core/obstacle.js");
 const { createConfig, clampParticleCount, PARTICLES } = __req("src/core/config.js");
+const { createDebug } = __req("src/debug/Debug.js");
 const { Renderer } = __req("src/render/Renderer.js");
 const { setupCanvas } = __req("src/app/canvas.js");
 const { attachInput } = __req("src/app/Input.js");
-const { attachControls, attachSettings } = __req("src/app/UI.js");
+const { attachControls, attachSettings, attachDebugPanel } = __req("src/app/UI.js");
 const { simulateOnce, startLoop } = __req("src/app/loop.js");
 const { VERSION } = __req("src/version.js");
 
@@ -1642,6 +1898,9 @@ setupScene(scene, simWidth, simHeight, config);
 
 const renderer = new Renderer(gl, canvas, simWidth, simHeight);
 renderer.init(scene.fluid);
+
+const debug = createDebug();
+debug.setEnabled(config.debug.enabled);
 
 attachInput({
     canvas,
@@ -1661,6 +1920,14 @@ function applyParticleCount(requested)
     setupScene(scene, simWidth, simHeight, config);
     renderer.init(scene.fluid);
 
+    // Statistics from the previous scene would be misleading here, not just
+    // stale - so they are cleared and the counts re-read from the new one.
+    debug.reset();
+    if (debug.enabled) {
+        debug.refreshCounts(scene);
+        debugPanel.update(debug.stats);
+    }
+
     return {
         requested: scene.requestedParticles,
         actual: scene.fluid.numParticles,
@@ -1674,13 +1941,32 @@ attachSettings(document, {
     onApply: applyParticleCount
 });
 
+const debugPanel = attachDebugPanel(document, {
+    enabled: config.debug.enabled,
+    onToggle: value => {
+        config.debug.enabled = value;
+        debug.setEnabled(value);
+        debugPanel.setEnabled(value);
+
+        if (value) {
+            debug.refreshCounts(scene);
+            debugPanel.update(debug.stats);
+        }
+    }
+});
+
 // Shown in the corner of the page, so a screenshot or a running sim says which
 // version it is without anyone having to ask git.
 const versionElement = document.getElementById('version');
 if (versionElement)
     versionElement.textContent = 'v' + VERSION;
 
-startLoop(scene, renderer);
+startLoop({
+    scene,
+    renderer,
+    debug,
+    onSample: stats => debugPanel.update(stats)
+});
 
 // Test hook used by test/parity-browser.mjs to drive this build and the
 // original through identical states. It has no effect on normal behaviour.
@@ -1688,6 +1974,7 @@ window.__flip = {
     scene,
     renderer,
     config,
+    debug,
     step: () => simulateOnce(scene),
     draw: () => renderer.draw(scene),
     setObstacle: (x, y, reset) => setObstacle(scene, x, y, reset),

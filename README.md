@@ -4,10 +4,12 @@ The single-file FLIP fluid demo (`ref/18-flip.html`, Ten Minute Physics episode 
 by Matthias Müller) split into modules - with the simulation and the rendered
 output verified identical to the original, not assumed identical.
 
-The page also carries a small settings panel: the particle count can be changed
-and applied, and the simulation rebuilds around it. See [WORKFLOW.md](WORKFLOW.md)
-for how versions and releases work - committing is local, and pushing is the
-step you take when you are satisfied with a piece of work.
+The page also carries two small panels: settings, where the particle count can be
+changed and applied, and debug, which reports frame rate, timings, particle
+counts and grid statistics while it is switched on. See
+[WORKFLOW.md](WORKFLOW.md) for how versions and releases work - committing is
+local, and pushing is the step you take when you are satisfied with a piece of
+work.
 
 `ref/18-flip.html` is a byte-identical copy of the original single file
 (sha256 `30682CCD...`), kept so the project stands on its own. Nothing in it has

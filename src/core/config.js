@@ -15,7 +15,13 @@ export function createConfig()
         // null means "whatever the scenario works out from the tank", which is
         // exactly what v1.0.0 did. A number means the user asked for a count,
         // and the scenario solves for the grid resolution that produces it.
-        particleCount: null
+        particleCount: null,
+
+        debug: {
+            // Collecting statistics while they are not being looked at would be
+            // work for nothing.
+            enabled: false
+        }
     };
 }
 
