@@ -1,22 +1,45 @@
 # Working on this project
 
-You have a git repository in this folder and a private copy on GitHub. Here is
-how to use them without losing work.
+You have a git repository in this folder and a private copy on GitHub.
+Committing is local and free; only the last step below needs the network, and
+you decide when to take it.
 
 ## The loop
 
 ```
-node tools/verify.mjs     # before every commit: rebuilds index.html, checks behaviour (~3 s)
-git status
+# work, then check it - all local
+node tools/verify.mjs          # ~3 s: rebuilds index.html, checks behaviour
 git add -A
 git commit -m "what changed and why"
+
+# before calling a piece of work finished - still local
+node tools/verify.mjs --full   # ~1.5 min: adds the two original-parity harnesses
+
+# when you are satisfied with it - the only step that needs the network
 git push
 ```
 
-`git push` needs no arguments: `main` already tracks `origin/main`.
+Every commit is a checkpoint, so committing often is what makes rolling back
+precise: the granularity of your undo is the granularity of your commits. A
+three-hour uncommitted stretch can only be thrown away whole.
 
-Before anything large, `node tools/verify.mjs --full` also runs the two
-original-parity harnesses (~1.5 min).
+`git push` needs no arguments - `main` already tracks `origin/main` - and it is
+the backup step, not part of editing. Working for days without it loses nothing,
+except that until you push, the only copy of the history is on this disk. Publish
+when a piece of work is verified and you are happy with it.
+
+### What needs the network
+
+```text
+local     git add, commit, log, diff, restore, revert, branch, tag, stash
+          node tools/verify.mjs, node tools/bundle.mjs, node test/*.mjs, start.cmd
+
+network   git push, git fetch, git pull, gh release
+```
+
+`node tools/release.mjs` is the one command that does both: it verifies, commits,
+and then pushes and publishes a release. That is deliberate - it is the "this is
+a version" button - so reach for it only when you mean to publish.
 
 ## Rolling back
 
@@ -60,6 +83,21 @@ git reset --hard <sha>                # or: git switch -c rescue <sha>
 Reflog is the net under the trapeze. Commits are not gone until they are
 garbage-collected, which takes weeks.
 
+### Two habits that make rolling back easy
+
+**Commit small, commit often.** Each commit is a checkpoint you can return to,
+and local commits cost nothing. Then "roll back" is usually "revert one commit"
+rather than "reconstruct the afternoon".
+
+**For anything you are unsure about, use a branch** instead of reverting later:
+
+```
+git switch -c try-new-interpolation    # experiment on this branch
+# ...edit, commit, verify...
+git switch main                        # not happy? main was never touched
+git branch -D try-new-interpolation
+```
+
 ## Branches, for anything non-trivial
 
 Rolling back is easier if the work was never on `main`:
@@ -79,7 +117,7 @@ To mark another point you are happy to come back to:
 
 ```
 git tag -a v1.1 -m "..."              # create
-git push --tags                       # publish
+git push --tags                       # publish (needs the network)
 ```
 
 ## Versions
