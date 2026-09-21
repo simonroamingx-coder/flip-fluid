@@ -81,8 +81,7 @@ export function createDebug()
     {
         Object.assign(stats, createRuntimeStats());
         zeroTimings();
-        pressureRange.positive = 0;
-        pressureRange.negative = 0;
+        pressureRange.peak = 0;
         fieldUpdates = 0;
         previousFrame = 0;
         smoothedFrameTime = 0;

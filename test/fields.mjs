@@ -54,10 +54,9 @@ for (let frame = 0; frame < 30; frame++)
     writePressureColors(fluid, colors, range);
 
 let fluidCells = 0;
-let positive = 0;
-let negative = 0;
 let coloured = 0;
 let wrong = 0;
+let brightest = 0;
 
 for (let yi = 0; yi < fluid.fNumY; yi++) {
     for (let xi = 0; xi < fluid.fNumX; xi++) {
@@ -79,24 +78,26 @@ for (let yi = 0; yi < fluid.fNumY; yi++) {
 
         fluidCells++;
         if (red || blue) coloured++;
+        if (red > brightest) brightest = red;
 
-        // Sign is what the view is for: pushing is red, pulling is blue, and a
-        // cell must never come out on the wrong side. One whose pressure is a
-        // tiny fraction of the scale rounds to black, which is invisible rather
-        // than wrong, so only the opposite colour counts as a failure.
-        if (fluid.p[cell] > 0) { positive++; if (blue > 0) wrong++; }
-        if (fluid.p[cell] < 0) { negative++; if (red > 0) wrong++; }
+        // Intensity in red, and only red: it tracks the size of the pressure,
+        // whichever direction it is acting in. Nothing else is allowed to carry
+        // colour, which is what the green and blue checks are for.
+        if (green || blue) wrong++;
+        const expected = Math.min(255, Math.round(255 * Math.abs(fluid.p[cell]) / range.peak));
+        if (Math.abs(red - expected) > 1) wrong++;
     }
 }
 
-check('pressure view is in range and signed', wrong === 0,
-    wrong ? `${wrong} cells drawn wrong` : `${fluidCells} fluid cells, ${positive} pushing, ${negative} pulling`);
+check('pressure view is red intensity, and only red', wrong === 0,
+    wrong ? `${wrong} cells drawn wrong`
+        : `${fluidCells} fluid cells, brightest ${brightest} of 255`);
 
 check('pressure view is not blank', coloured > fluidCells * 0.2,
     `${coloured} of ${fluidCells} fluid cells carry a colour`);
 
-check('pressure scale settles', range.positive > 0 && range.negative > 0,
-    `pushing up to ${range.positive.toFixed(4)}, pulling to ${range.negative.toFixed(4)}`);
+check('pressure scale settles', range.peak > 0,
+    `peak ${range.peak.toFixed(1)}`);
 
 // ------------------------------------------------------- the cell type view
 
