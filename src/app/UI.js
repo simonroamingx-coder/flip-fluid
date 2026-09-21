@@ -90,15 +90,22 @@ const DEBUG_ROWS = [
     { key: 'fluidCells', label: 'Fluid Cells', format: formatCount }
 ];
 
-export function attachDebugPanel(doc, { enabled, onToggle })
+const DEBUG_VIEWS = [
+    { id: 'showPressure', key: 'pressure' },
+    { id: 'showCellTypes', key: 'cellTypes' }
+];
+
+export function attachDebugPanel(doc, { enabled, views, onToggle, onViews })
 {
     const checkbox = doc.getElementById('debugEnabled');
     const body = doc.getElementById('debugStats');
+    const viewBox = doc.getElementById('debugViews');
 
     if (!checkbox || !body)
         return null;
 
     const cells = new Map();
+    const viewBoxes = new Map();
 
     for (const row of DEBUG_ROWS) {
         const line = doc.createElement('div');
@@ -116,8 +123,26 @@ export function attachDebugPanel(doc, { enabled, onToggle })
         cells.set(row.key, { format: row.format, element: value });
     }
 
+    for (const view of DEBUG_VIEWS) {
+        const box = doc.getElementById(view.id);
+        if (!box)
+            continue;
+
+        box.checked = Boolean(views && views[view.key]);
+        box.addEventListener('change', () => {
+            const next = {};
+            for (const [key, element] of viewBoxes)
+                next[key] = element.checked;
+            next[view.key] = box.checked;
+            onViews(next);
+        });
+        viewBoxes.set(view.key, box);
+    }
+
     checkbox.checked = enabled;
     body.hidden = !enabled;
+    if (viewBox)
+        viewBox.hidden = !enabled;
 
     const panel = {
         update(stats)
@@ -130,10 +155,18 @@ export function attachDebugPanel(doc, { enabled, onToggle })
         {
             checkbox.checked = value;
             body.hidden = !value;
+            if (viewBox)
+                viewBox.hidden = !value;
             if (!value) {
                 for (const cell of cells.values())
                     cell.element.textContent = cell.format(0);
             }
+        },
+
+        setViews(next)
+        {
+            for (const [key, element] of viewBoxes)
+                element.checked = Boolean(next[key]);
         }
     };
 

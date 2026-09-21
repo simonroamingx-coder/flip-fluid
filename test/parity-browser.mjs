@@ -122,6 +122,7 @@ function panelScript()
 
         const entry = window.__flip;
         const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
+        ${DIGEST_JS}
 
         // debug is off until asked for
         const enabledBefore = toggle.checked;
@@ -155,6 +156,49 @@ function panelScript()
 
         const running = { stats: { ...entry.debug.stats }, text: stats.textContent };
 
+        // The views are compared with the simulation paused, so a difference in
+        // the picture can only come from the view rather than from time passing.
+        entry.scene.paused = true;
+        await wait(250);
+
+        const digestBefore = stateDigest(entry.scene);
+
+        const picture = async (pressure, cellTypes) => {
+            const set = (id, value) => {
+                const input = document.getElementById(id);
+                input.checked = value;
+                input.dispatchEvent(new Event('change', { bubbles: true }));
+            };
+            set('showPressure', pressure);
+            set('showCellTypes', cellTypes);
+            await wait(300);
+            entry.draw();
+            return document.getElementById('myCanvas').toDataURL('image/png');
+        };
+
+        const plain = await picture(false, false);
+        const pressureView = await picture(true, false);
+        const cellsView = await picture(false, true);
+
+        const views = {
+            digestUnchanged: digestBefore === stateDigest(entry.scene),
+            pressureDiffers: pressureView !== plain,
+            cellsDiffer: cellsView !== plain && cellsView !== pressureView
+        };
+
+        // Pictures for the record, with the particle overlay off: the fields are
+        // what these views are for, and the particles sit right on top of them.
+        const hadParticles = entry.scene.showParticles;
+        entry.scene.showParticles = false;
+        views.pressureField = await picture(true, false);
+        views.cellsField = await picture(false, true);
+        entry.scene.showParticles = hadParticles;
+
+        // Running again, so the screenshot taken after this shows live numbers
+        // rather than a paused panel reading zero.
+        entry.scene.paused = false;
+        await wait(250);
+
         // Left running on purpose: the screenshot taken after this shows live
         // numbers rather than a paused panel reading zero.
         entry.draw();
@@ -175,6 +219,7 @@ function panelScript()
             },
             after: after,
             running: running,
+            views: views,
             canvas: document.getElementById('myCanvas').toDataURL('image/png')
         });
     })()`;
@@ -596,6 +641,10 @@ try {
     await writeFile(join(artifacts, 'refactored.png'), refactored.shot);
     await writeFile(join(artifacts, 'standalone.png'), standalone.shot);
     await writeFile(join(artifacts, 'settings-applied-standalone.png'), standalone.settingsShot);
+    await writeFile(join(artifacts, 'view-pressure.png'),
+        Buffer.from(standalone.settings.views.pressureField.split(',')[1], 'base64'));
+    await writeFile(join(artifacts, 'view-cell-types.png'),
+        Buffer.from(standalone.settings.views.cellsField.split(',')[1], 'base64'));
 
     const checks = [];
     const check = (name, ok, detail) => checks.push({ name, ok, detail });
@@ -713,6 +762,15 @@ try {
             page.settings.running.text.includes('Grid to Particle')),
         `dev panel has it: ${refactored.settings.running.text.includes('Pressure Solve')}, `
         + `standalone panel has it: ${standalone.settings.running.text.includes('Pressure Solve')}`);
+
+    check('debug views change the picture',
+        [refactored, standalone].every(page =>
+            page.settings.views.pressureDiffers && page.settings.views.cellsDiffer),
+        'pressure and cell types each draw something different from the plain view, and from each other');
+
+    check('debug views do not change the simulation',
+        [refactored, standalone].every(page => page.settings.views.digestUnchanged),
+        'switching views on and off leaves the simulation state untouched');
 
     const probeDiffs = new Map();
 

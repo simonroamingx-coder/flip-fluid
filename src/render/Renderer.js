@@ -125,7 +125,10 @@ export class Renderer
         }
     }
 
-    draw(scene)
+    // `field` is an optional debug view: { colors, scale }, where scale is in
+    // cells. It takes the place of the density grid while it is on, since both
+    // are cell-centred views and drawing one over the other just overdraws.
+    draw(scene, field = null)
     {
         const gl = this.gl;
         const fluid = scene.fluid;
@@ -135,8 +138,10 @@ export class Renderer
 
         gl.viewport(0, 0, this.canvas.width, this.canvas.height);
 
-        if (scene.showGrid)
-            this.drawGrid(fluid);
+        if (field)
+            this.drawCells(field.colors, fluid, field.scale * fluid.h / this.simWidth * this.canvas.width);
+        else if (scene.showGrid)
+            this.drawCells(fluid.cellColor, fluid, 0.9 * fluid.h / this.simWidth * this.canvas.width);
 
         if (scene.showParticles)
             this.drawParticles(fluid);
@@ -144,12 +149,12 @@ export class Renderer
         this.drawObstacle(scene, fluid);
     }
 
-    drawGrid(fluid)
+    // Cell-centred points, coloured from any per-cell array. The density grid and
+    // the debug fields are the same drawing with a different source of colour.
+    drawCells(colors, fluid, pointSize)
     {
         const gl = this.gl;
         const loc = this.pointLocations;
-
-        const pointSize = 0.9 * fluid.h / this.simWidth * this.canvas.width;
 
         gl.useProgram(this.pointShader);
         gl.uniform2f(loc.uniforms.domainSize, this.simWidth, this.simHeight);
@@ -161,7 +166,7 @@ export class Renderer
         gl.vertexAttribPointer(loc.attributes.attrPosition, 2, gl.FLOAT, false, 0, 0);
 
         gl.bindBuffer(gl.ARRAY_BUFFER, this.gridColorBuffer);
-        gl.bufferData(gl.ARRAY_BUFFER, fluid.cellColor, gl.DYNAMIC_DRAW);
+        gl.bufferData(gl.ARRAY_BUFFER, colors, gl.DYNAMIC_DRAW);
 
         gl.enableVertexAttribArray(loc.attributes.attrColor);
         gl.vertexAttribPointer(loc.attributes.attrColor, 3, gl.FLOAT, false, 0, 0);

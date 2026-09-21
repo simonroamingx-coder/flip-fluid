@@ -89,6 +89,11 @@ body {
 #debugStats {
 	margin-top: 8px;
 }
+#debugViews {
+	margin-top: 8px;
+	padding-top: 8px;
+	border-top: 1px solid #3a3a3a;
+}
 #debugStats .stat {
 	display: flex;
 	justify-content: space-between;

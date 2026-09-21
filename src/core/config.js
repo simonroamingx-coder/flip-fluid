@@ -20,7 +20,11 @@ export function createConfig()
         debug: {
             // Collecting statistics while they are not being looked at would be
             // work for nothing.
-            enabled: false
+            enabled: false,
+
+            // Debug views drawn over the simulation, and only while debug is on.
+            showPressure: false,
+            showCellTypes: false
         }
     };
 }

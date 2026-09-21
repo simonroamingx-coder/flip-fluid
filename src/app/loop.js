@@ -19,7 +19,7 @@ export function simulateOnce(scene, timings = null)
 // and nothing else. Statistics are collected only while debug is enabled, and the
 // panel behind them is refreshed at a fixed rate instead of every frame, because
 // the simulation runs at 60 Hz and no one needs the DOM updated that often.
-export function startLoop({ scene, renderer, debug, onSample, sampleIntervalMs = 150 })
+export function startLoop({ scene, drawFrame, debug, onSample, sampleIntervalMs = 150 })
 {
     let lastSample = 0;
 
@@ -37,7 +37,7 @@ export function startLoop({ scene, renderer, debug, onSample, sampleIntervalMs =
 
         const afterSimulate = performance.now();
 
-        renderer.draw(scene);
+        drawFrame();
         const afterDraw = performance.now();
 
         if (debug && debug.enabled) {
@@ -50,6 +50,7 @@ export function startLoop({ scene, renderer, debug, onSample, sampleIntervalMs =
             if (onSample && now - lastSample >= sampleIntervalMs) {
                 lastSample = now;
                 debug.refreshCounts(scene);
+                debug.refreshFields(scene);
                 onSample(debug.stats);
             }
         }

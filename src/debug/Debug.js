@@ -10,6 +10,7 @@
 // The panel formats what is here. It does not compute anything.
 
 import { FLUID_CELL } from '../core/constants.js';
+import { writePressureColors, writeCellTypes } from './fields.js';
 
 export function createRuntimeStats()
 {
@@ -61,6 +62,12 @@ export function createDebug()
     let enabled = false;
     let previousFrame = 0;
     let smoothedFrameTime = 0;
+
+    // Which of the debug views is showing. Kept here rather than read from the
+    // configuration each frame, so the renderer is never asking the UI anything.
+    let views = { pressure: false, cellTypes: false };
+    let pressureColors = null;
+    let cellTypeColors = null;
 
     function zeroTimings()
     {
@@ -127,9 +134,66 @@ export function createDebug()
         stats.fluidCells = fluidCells;
     }
 
+    function ensureBuffers(fluid)
+    {
+        const needed = 3 * fluid.fNumCells;
+        if (pressureColors && pressureColors.length === needed)
+            return;
+
+        pressureColors = new Float32Array(needed);
+        cellTypeColors = new Float32Array(needed);
+    }
+
+    // Recomputes the colour buffers for whichever views are on. Cells are
+    // classified first, so a view switched on while the simulation is paused
+    // describes the grid the next step would use rather than an empty one.
+    // Called at the panel's refresh rate, not every frame: the colours only
+    // change when the simulation does.
+    function refreshFields(scene)
+    {
+        const fluid = scene.fluid;
+        if (!fluid || (!views.pressure && !views.cellTypes))
+            return;
+
+        fluid.classifyCells();
+        ensureBuffers(fluid);
+
+        if (views.pressure)
+            writePressureColors(fluid, pressureColors);
+        if (views.cellTypes)
+            writeCellTypes(fluid, cellTypeColors);
+    }
+
+    // What the renderer should draw over the simulation, if anything. The buffer
+    // length is checked because rebuilding the scene changes the cell count, and
+    // a stale buffer would be uploaded for the wrong number of vertices.
+    function fieldView(scene)
+    {
+        if (!enabled || !scene.fluid)
+            return null;
+
+        const colors = views.pressure ? pressureColors : views.cellTypes ? cellTypeColors : null;
+        if (!colors || colors.length !== 3 * scene.fluid.fNumCells)
+            return null;
+
+        return { colors, scale: 1.0 };
+    }
+
     return {
         stats,
         timings,
+
+        get views()
+        {
+            return { ...views };
+        },
+
+        setViews(value)
+        {
+            views = { pressure: Boolean(value.pressure), cellTypes: Boolean(value.cellTypes) };
+            if (!enabled)
+                views = { pressure: false, cellTypes: false };
+        },
 
         get enabled()
         {
@@ -146,6 +210,8 @@ export function createDebug()
         reset,
         beginStep,
         recordStep,
-        refreshCounts
+        refreshCounts,
+        refreshFields,
+        fieldView
     };
 }

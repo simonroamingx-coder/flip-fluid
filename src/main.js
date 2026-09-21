@@ -53,6 +53,7 @@ function applyParticleCount(requested)
     debug.reset();
     if (debug.enabled) {
         debug.refreshCounts(scene);
+        debug.refreshFields(scene);
         debugPanel.update(debug.stats);
     }
 
@@ -71,6 +72,10 @@ attachSettings(document, {
 
 const debugPanel = attachDebugPanel(document, {
     enabled: config.debug.enabled,
+    views: {
+        pressure: config.debug.showPressure,
+        cellTypes: config.debug.showCellTypes
+    },
     onToggle: value => {
         config.debug.enabled = value;
         debug.setEnabled(value);
@@ -78,10 +83,32 @@ const debugPanel = attachDebugPanel(document, {
 
         if (value) {
             debug.refreshCounts(scene);
+            debug.refreshFields(scene);
             debugPanel.update(debug.stats);
+        } else {
+            // A view with the collector switched off is neither collected nor
+            // controllable, so switching debug off switches the views off too.
+            config.debug.showPressure = false;
+            config.debug.showCellTypes = false;
+            debug.setViews({ pressure: false, cellTypes: false });
+            debugPanel.setViews({ pressure: false, cellTypes: false });
         }
+    },
+    onViews: views => {
+        config.debug.showPressure = views.pressure;
+        config.debug.showCellTypes = views.cellTypes;
+        debug.setViews(views);
+        debug.refreshFields(scene);
     }
 });
+
+// One place that knows how a frame is drawn, used by the loop and by the test
+// hook alike: a second copy in the hook would be free to drift from the loop,
+// and a test that draws differently from the app tests the wrong thing.
+function drawFrame()
+{
+    renderer.draw(scene, debug.fieldView(scene));
+}
 
 // Shown in the corner of the page, so a screenshot or a running sim says which
 // version it is without anyone having to ask git.
@@ -91,7 +118,7 @@ if (versionElement)
 
 startLoop({
     scene,
-    renderer,
+    drawFrame,
     debug,
     onSample: stats => debugPanel.update(stats)
 });
@@ -104,7 +131,7 @@ window.__flip = {
     config,
     debug,
     step: () => simulateOnce(scene),
-    draw: () => renderer.draw(scene),
+    draw: drawFrame,
     setObstacle: (x, y, reset) => setObstacle(scene, x, y, reset),
     applyParticleCount
 };

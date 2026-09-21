@@ -29,6 +29,14 @@ Landed so far:
   sequence written once - a second copy of that sequence would be free to drift
   out of step and report times for operations that no longer happen in that
   order. With no sink, the cost is one boolean test per stage.
+- **Debug views** over the simulation: pressure, read from `fluid.p` and mapped
+  diverging around zero with each side scaled to its own maximum, and cell types,
+  read from `fluid.cellType` - grey solid, blue fluid, near-black air. That is the
+  grid exactly as the solver sees it, so it doubles as the collision view: the
+  solid cells are the surfaces particles are pushed off. Both views only read the
+  solver, are computed at the panel's refresh rate rather than every frame, and
+  take the place of the density grid while switched on, since all three are
+  cell-centred drawings of the same grid.
 - `src/core/config.js` holds user settings, apart from the live scene state.
 - The default path is untouched: with no configured count the scenario uses the
   original resolution, and the behaviour baseline still matches v1.0.0 field for
@@ -37,8 +45,8 @@ Landed so far:
   rebuild, run the full verification, commit, tag, push, and publish a GitHub
   release with the generated `index.html` attached under a versioned name.
 
-Still to come: the debug visualisations (particles, grid, velocity, pressure,
-collision) and advanced runtime inspection.
+Still to come: velocity vectors, which need new geometry rather than another
+per-cell colouring, and advanced runtime inspection.
 
 ## v1.0.0 - First versioned release
 
