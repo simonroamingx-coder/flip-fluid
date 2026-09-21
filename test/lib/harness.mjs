@@ -201,11 +201,11 @@ export function stepReference(scene)
         scene.obstacleX, scene.obstacleY, scene.obstacleRadius);
 }
 
-export function stepRefactored(scene)
+export function stepRefactored(scene, timings = null)
 {
     scene.fluid.simulate(
         scene.dt, scene.gravity, scene.flipRatio, scene.numPressureIters, scene.numParticleIters,
         scene.overRelaxation, scene.compensateDrift, scene.separateParticles,
         scene.obstacleX, scene.obstacleY, scene.obstacleRadius,
-        scene.obstacleVelX, scene.obstacleVelY);
+        scene.obstacleVelX, scene.obstacleVelY, timings);
 }

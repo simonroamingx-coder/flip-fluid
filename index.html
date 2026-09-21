@@ -68,6 +68,8 @@ body {
 	flex-direction: column;
 	gap: 8px;
 	z-index: 10;
+	max-height: calc(100vh - 44px);
+	overflow: auto;
 }
 .panel {
 	padding: 10px;
@@ -117,6 +119,10 @@ body {
 }
 #debugStats .value {
 	color: #b8d8ff;
+}
+#debugStats .stat.sub span:first-child {
+	padding-left: 10px;
+	opacity: 0.85;
 }
 
 /* The original demo carried this rule for a button it never had. The settings
@@ -803,24 +809,47 @@ class FlipFluid
         }
     }
 
-    simulate(dt, gravity, flipRatio, numPressureIters, numParticleIters, overRelaxation, compensateDrift, separateParticles, obstacleX, obstacleY, obstacleRadius, obstacleVelX, obstacleVelY)
+    // One stage sequence, always. When a `timings` sink is passed the stages are
+    // measured into it; when it is not - the normal case - the only cost is one
+    // boolean test per stage. The sequence is never duplicated, because a second
+    // copy would be free to drift out of step with this one and report times for
+    // operations that no longer happen in that order.
+    simulate(dt, gravity, flipRatio, numPressureIters, numParticleIters, overRelaxation, compensateDrift, separateParticles, obstacleX, obstacleY, obstacleRadius, obstacleVelX, obstacleVelY, timings = null)
     {
         var numSubSteps = 1;
         var sdt = dt / numSubSteps;
 
         for (var step = 0; step < numSubSteps; step++) {
+            var mark = timings ? performance.now() : 0;
+            var now = 0;
+
             this.integrateParticles(sdt, gravity);
+            if (timings) { now = performance.now(); timings.particleTime += now - mark; mark = now; }
+
             if (separateParticles)
                 this.pushParticlesApart(numParticleIters);
+            if (timings) { now = performance.now(); timings.particleTime += now - mark; mark = now; }
+
             this.handleParticleCollisions(obstacleX, obstacleY, obstacleRadius, obstacleVelX, obstacleVelY);
+            if (timings) { now = performance.now(); timings.collisionTime += now - mark; mark = now; }
+
             this.transferVelocities(true);
+            if (timings) { now = performance.now(); timings.particleToGridTime += now - mark; mark = now; }
+
             this.updateParticleDensity();
+            if (timings) { now = performance.now(); timings.otherTime += now - mark; mark = now; }
+
             this.solveIncompressibility(numPressureIters, sdt, overRelaxation, compensateDrift);
+            if (timings) { now = performance.now(); timings.pressureTime += now - mark; mark = now; }
+
             this.transferVelocities(false, flipRatio);
+            if (timings) { now = performance.now(); timings.gridToParticleTime += now - mark; }
         }
 
+        var mark = timings ? performance.now() : 0;
         this.updateParticleColors();
         this.updateCellColors();
+        if (timings) timings.otherTime += performance.now() - mark;
     }
 }
 
@@ -1070,12 +1099,36 @@ function createRuntimeStats()
     return {
         fps: 0,
         frameTime: 0,
+
         simulationTime: 0,
         renderTime: 0,
+
+        // What the simulation spent itself on, as the solver reports it
+        particleTime: 0,
+        particleToGridTime: 0,
+        pressureTime: 0,
+        gridToParticleTime: 0,
+        collisionTime: 0,
+        otherTime: 0,
+
         particleCount: 0,
         activeParticles: 0,
         gridCells: 0,
         fluidCells: 0
+    };
+}
+
+// The sink the solver writes its stage times into. It is cleared before every
+// step, so the panel shows what one frame cost rather than a running total.
+function createTimings()
+{
+    return {
+        particleTime: 0,
+        particleToGridTime: 0,
+        pressureTime: 0,
+        gridToParticleTime: 0,
+        collisionTime: 0,
+        otherTime: 0
     };
 }
 
@@ -1087,19 +1140,32 @@ const SMOOTHING = 0.1;
 function createDebug()
 {
     const stats = createRuntimeStats();
+    const timings = createTimings();
     let enabled = false;
     let previousFrame = 0;
     let smoothedFrameTime = 0;
 
+    function zeroTimings()
+    {
+        for (const key in timings)
+            timings[key] = 0;
+    }
+
     function reset()
     {
         Object.assign(stats, createRuntimeStats());
+        zeroTimings();
         previousFrame = 0;
         smoothedFrameTime = 0;
     }
 
+    function beginStep()
+    {
+        zeroTimings();
+    }
+
     // Called once per animation frame, and only while enabled.
-    function recordFrame(now, simulationTime, renderTime)
+    function recordStep({ now, simulationTime, renderTime })
     {
         if (previousFrame) {
             const frameTime = now - previousFrame;
@@ -1114,6 +1180,9 @@ function createDebug()
 
         stats.simulationTime = simulationTime;
         stats.renderTime = renderTime;
+
+        for (const key in timings)
+            stats[key] = timings[key];
     }
 
     // Read from the solver's grid as it stands. This walks the cell array, so it
@@ -1143,6 +1212,7 @@ function createDebug()
 
     return {
         stats,
+        timings,
 
         get enabled()
         {
@@ -1157,12 +1227,14 @@ function createDebug()
         },
 
         reset,
-        recordFrame,
+        beginStep,
+        recordStep,
         refreshCounts
     };
 }
 
 	__exports.createRuntimeStats = createRuntimeStats;
+	__exports.createTimings = createTimings;
 	__exports.createDebug = createDebug;
 };
 
@@ -1729,6 +1801,12 @@ const DEBUG_ROWS = [
     { key: 'fps', label: 'FPS', format: value => value.toFixed(1) },
     { key: 'frameTime', label: 'Frame Time', format: value => value.toFixed(1) + ' ms' },
     { key: 'simulationTime', label: 'Simulation', format: value => value.toFixed(1) + ' ms' },
+    { key: 'particleTime', label: 'Particle Update', format: value => value.toFixed(1) + ' ms', sub: true },
+    { key: 'particleToGridTime', label: 'Particle to Grid', format: value => value.toFixed(1) + ' ms', sub: true },
+    { key: 'pressureTime', label: 'Pressure Solve', format: value => value.toFixed(1) + ' ms', sub: true },
+    { key: 'gridToParticleTime', label: 'Grid to Particle', format: value => value.toFixed(1) + ' ms', sub: true },
+    { key: 'collisionTime', label: 'Collision', format: value => value.toFixed(1) + ' ms', sub: true },
+    { key: 'otherTime', label: 'Other', format: value => value.toFixed(1) + ' ms', sub: true },
     { key: 'renderTime', label: 'Render', format: value => value.toFixed(1) + ' ms' },
     { key: 'particleCount', label: 'Particles', format: formatCount },
     { key: 'activeParticles', label: 'Active', format: formatCount },
@@ -1748,7 +1826,7 @@ function attachDebugPanel(doc, { enabled, onToggle })
 
     for (const row of DEBUG_ROWS) {
         const line = doc.createElement('div');
-        line.className = 'stat';
+        line.className = row.sub ? 'stat sub' : 'stat';
 
         const label = doc.createElement('span');
         label.textContent = row.label;
@@ -1801,14 +1879,14 @@ __mods["src/app/loop.js"] = function (__exports, __req) {
 // One simulation step. Note that frameNr is incremented on every call, including
 // when the scene is paused - that matches the original function, where the
 // increment sat outside the `if (!scene.paused)` guard.
-function simulateOnce(scene)
+function simulateOnce(scene, timings = null)
 {
     if (!scene.paused)
         scene.fluid.simulate(
             scene.dt, scene.gravity, scene.flipRatio, scene.numPressureIters, scene.numParticleIters,
             scene.overRelaxation, scene.compensateDrift, scene.separateParticles,
             scene.obstacleX, scene.obstacleY, scene.obstacleRadius,
-            scene.obstacleVelX, scene.obstacleVelY);
+            scene.obstacleVelX, scene.obstacleVelY, timings);
 
     scene.frameNr++;
 }
@@ -1824,14 +1902,26 @@ function startLoop({ scene, renderer, debug, onSample, sampleIntervalMs = 150 })
     function update(now)
     {
         const start = performance.now();
-        simulateOnce(scene);
+
+        // The disabled path is the one that runs normally: no sink, no timing.
+        if (debug && debug.enabled) {
+            debug.beginStep();
+            simulateOnce(scene, debug.timings);
+        } else {
+            simulateOnce(scene);
+        }
+
         const afterSimulate = performance.now();
 
         renderer.draw(scene);
         const afterDraw = performance.now();
 
         if (debug && debug.enabled) {
-            debug.recordFrame(now, afterSimulate - start, afterDraw - afterSimulate);
+            debug.recordStep({
+                now,
+                simulationTime: afterSimulate - start,
+                renderTime: afterDraw - afterSimulate
+            });
 
             if (onSample && now - lastSample >= sampleIntervalMs) {
                 lastSample = now;

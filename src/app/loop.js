@@ -3,14 +3,14 @@
 // One simulation step. Note that frameNr is incremented on every call, including
 // when the scene is paused - that matches the original function, where the
 // increment sat outside the `if (!scene.paused)` guard.
-export function simulateOnce(scene)
+export function simulateOnce(scene, timings = null)
 {
     if (!scene.paused)
         scene.fluid.simulate(
             scene.dt, scene.gravity, scene.flipRatio, scene.numPressureIters, scene.numParticleIters,
             scene.overRelaxation, scene.compensateDrift, scene.separateParticles,
             scene.obstacleX, scene.obstacleY, scene.obstacleRadius,
-            scene.obstacleVelX, scene.obstacleVelY);
+            scene.obstacleVelX, scene.obstacleVelY, timings);
 
     scene.frameNr++;
 }
@@ -26,14 +26,26 @@ export function startLoop({ scene, renderer, debug, onSample, sampleIntervalMs =
     function update(now)
     {
         const start = performance.now();
-        simulateOnce(scene);
+
+        // The disabled path is the one that runs normally: no sink, no timing.
+        if (debug && debug.enabled) {
+            debug.beginStep();
+            simulateOnce(scene, debug.timings);
+        } else {
+            simulateOnce(scene);
+        }
+
         const afterSimulate = performance.now();
 
         renderer.draw(scene);
         const afterDraw = performance.now();
 
         if (debug && debug.enabled) {
-            debug.recordFrame(now, afterSimulate - start, afterDraw - afterSimulate);
+            debug.recordStep({
+                now,
+                simulationTime: afterSimulate - start,
+                renderTime: afterDraw - afterSimulate
+            });
 
             if (onSample && now - lastSample >= sampleIntervalMs) {
                 lastSample = now;

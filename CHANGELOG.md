@@ -23,6 +23,12 @@ Landed so far:
   `transferVelocities()` so that a statistic read while the simulation is paused
   describes the same classification the next step would make, instead of
   counting an unclassified grid. The solver still knows nothing about the panel.
+- **Per-stage profiling**: particle update, particle to grid, pressure solve,
+  grid to particle, collision, and everything else, inside the simulation total.
+  `simulate()` takes an optional timing sink and measures its own stages with the
+  sequence written once - a second copy of that sequence would be free to drift
+  out of step and report times for operations that no longer happen in that
+  order. With no sink, the cost is one boolean test per stage.
 - `src/core/config.js` holds user settings, apart from the live scene state.
 - The default path is untouched: with no configured count the scenario uses the
   original resolution, and the behaviour baseline still matches v1.0.0 field for
@@ -31,9 +37,8 @@ Landed so far:
   rebuild, run the full verification, commit, tag, push, and publish a GitHub
   release with the generated `index.html` attached under a versioned name.
 
-Still to come: the per-stage profiler (particle update, particle to grid,
-pressure solve, grid to particle, collision), the debug visualisations, and
-advanced runtime inspection.
+Still to come: the debug visualisations (particles, grid, velocity, pressure,
+collision) and advanced runtime inspection.
 
 ## v1.0.0 - First versioned release
 

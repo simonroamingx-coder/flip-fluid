@@ -45,6 +45,8 @@ body {
 	flex-direction: column;
 	gap: 8px;
 	z-index: 10;
+	max-height: calc(100vh - 44px);
+	overflow: auto;
 }
 .panel {
 	padding: 10px;
@@ -94,6 +96,10 @@ body {
 }
 #debugStats .value {
 	color: #b8d8ff;
+}
+#debugStats .stat.sub span:first-child {
+	padding-left: 10px;
+	opacity: 0.85;
 }
 
 /* The original demo carried this rule for a button it never had. The settings

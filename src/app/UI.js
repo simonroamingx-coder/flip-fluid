@@ -77,6 +77,12 @@ const DEBUG_ROWS = [
     { key: 'fps', label: 'FPS', format: value => value.toFixed(1) },
     { key: 'frameTime', label: 'Frame Time', format: value => value.toFixed(1) + ' ms' },
     { key: 'simulationTime', label: 'Simulation', format: value => value.toFixed(1) + ' ms' },
+    { key: 'particleTime', label: 'Particle Update', format: value => value.toFixed(1) + ' ms', sub: true },
+    { key: 'particleToGridTime', label: 'Particle to Grid', format: value => value.toFixed(1) + ' ms', sub: true },
+    { key: 'pressureTime', label: 'Pressure Solve', format: value => value.toFixed(1) + ' ms', sub: true },
+    { key: 'gridToParticleTime', label: 'Grid to Particle', format: value => value.toFixed(1) + ' ms', sub: true },
+    { key: 'collisionTime', label: 'Collision', format: value => value.toFixed(1) + ' ms', sub: true },
+    { key: 'otherTime', label: 'Other', format: value => value.toFixed(1) + ' ms', sub: true },
     { key: 'renderTime', label: 'Render', format: value => value.toFixed(1) + ' ms' },
     { key: 'particleCount', label: 'Particles', format: formatCount },
     { key: 'activeParticles', label: 'Active', format: formatCount },
@@ -96,7 +102,7 @@ export function attachDebugPanel(doc, { enabled, onToggle })
 
     for (const row of DEBUG_ROWS) {
         const line = doc.createElement('div');
-        line.className = 'stat';
+        line.className = row.sub ? 'stat sub' : 'stat';
 
         const label = doc.createElement('span');
         label.textContent = row.label;

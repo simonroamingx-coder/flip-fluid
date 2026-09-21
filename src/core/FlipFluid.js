@@ -533,23 +533,46 @@ export class FlipFluid
         }
     }
 
-    simulate(dt, gravity, flipRatio, numPressureIters, numParticleIters, overRelaxation, compensateDrift, separateParticles, obstacleX, obstacleY, obstacleRadius, obstacleVelX, obstacleVelY)
+    // One stage sequence, always. When a `timings` sink is passed the stages are
+    // measured into it; when it is not - the normal case - the only cost is one
+    // boolean test per stage. The sequence is never duplicated, because a second
+    // copy would be free to drift out of step with this one and report times for
+    // operations that no longer happen in that order.
+    simulate(dt, gravity, flipRatio, numPressureIters, numParticleIters, overRelaxation, compensateDrift, separateParticles, obstacleX, obstacleY, obstacleRadius, obstacleVelX, obstacleVelY, timings = null)
     {
         var numSubSteps = 1;
         var sdt = dt / numSubSteps;
 
         for (var step = 0; step < numSubSteps; step++) {
+            var mark = timings ? performance.now() : 0;
+            var now = 0;
+
             this.integrateParticles(sdt, gravity);
+            if (timings) { now = performance.now(); timings.particleTime += now - mark; mark = now; }
+
             if (separateParticles)
                 this.pushParticlesApart(numParticleIters);
+            if (timings) { now = performance.now(); timings.particleTime += now - mark; mark = now; }
+
             this.handleParticleCollisions(obstacleX, obstacleY, obstacleRadius, obstacleVelX, obstacleVelY);
+            if (timings) { now = performance.now(); timings.collisionTime += now - mark; mark = now; }
+
             this.transferVelocities(true);
+            if (timings) { now = performance.now(); timings.particleToGridTime += now - mark; mark = now; }
+
             this.updateParticleDensity();
+            if (timings) { now = performance.now(); timings.otherTime += now - mark; mark = now; }
+
             this.solveIncompressibility(numPressureIters, sdt, overRelaxation, compensateDrift);
+            if (timings) { now = performance.now(); timings.pressureTime += now - mark; mark = now; }
+
             this.transferVelocities(false, flipRatio);
+            if (timings) { now = performance.now(); timings.gridToParticleTime += now - mark; }
         }
 
+        var mark = timings ? performance.now() : 0;
         this.updateParticleColors();
         this.updateCellColors();
+        if (timings) timings.otherTime += performance.now() - mark;
     }
 }

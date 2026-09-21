@@ -140,6 +140,23 @@ function panelScript()
         slider.dispatchEvent(new Event('input', { bubbles: true }));
         apply.click();
         await wait(500);
+
+        const after = {
+            active: entry.scene.fluid.numParticles,
+            resolution: entry.scene.gridResolution,
+            particlesInPanel: entry.debug.stats.activeParticles,
+            text: stats.textContent
+        };
+
+        // let it run for a moment, so the per-stage timings have something to
+        // measure: a paused simulation does no work to divide up
+        entry.scene.paused = false;
+        await wait(900);
+
+        const running = { stats: { ...entry.debug.stats }, text: stats.textContent };
+
+        // Left running on purpose: the screenshot taken after this shows live
+        // numbers rather than a paused panel reading zero.
         entry.draw();
 
         return JSON.stringify({
@@ -156,12 +173,8 @@ function panelScript()
                 stats: debugStats,
                 text: debugText
             },
-            after: {
-                active: entry.scene.fluid.numParticles,
-                resolution: entry.scene.gridResolution,
-                particlesInPanel: entry.debug.stats.activeParticles,
-                text: stats.textContent
-            },
+            after: after,
+            running: running,
             canvas: document.getElementById('myCanvas').toDataURL('image/png')
         });
     })()`;
@@ -668,6 +681,38 @@ try {
             page.settings.after.active === page.settings.actual),
         `after Apply the panel reads ${withCommas(refactored.settings.after.active)} particles, `
         + `the scene has the same`);
+
+    const stageSum = stats => stats.particleTime + stats.particleToGridTime + stats.pressureTime
+        + stats.gridToParticleTime + stats.collisionTime + stats.otherTime;
+
+    const describeRunning = page => {
+        const stats = page.settings.running.stats;
+        return `sim ${stats.simulationTime.toFixed(1)}, pressure ${stats.pressureTime.toFixed(1)}, `
+            + `particles ${stats.particleTime.toFixed(1)}, stages ${stageSum(stats).toFixed(1)}`;
+    };
+
+    check('stage timings appear while running',
+        [refactored, standalone].every(page =>
+            page.settings.running.stats.simulationTime > 0 &&
+            page.settings.running.stats.pressureTime > 0 &&
+            page.settings.running.stats.particleTime > 0),
+        `dev [${describeRunning(refactored)}]  standalone [${describeRunning(standalone)}]`);
+
+    check('stage timings fit inside the step',
+        [refactored, standalone].every(page => {
+            const stats = page.settings.running.stats;
+            const sum = stageSum(stats);
+            return sum > 0 && sum <= stats.simulationTime * 1.05;
+        }),
+        `dev [${describeRunning(refactored)}]  standalone [${describeRunning(standalone)}]`);
+
+    check('debug panel lists the stages',
+        [refactored, standalone].every(page =>
+            page.settings.running.text.includes('Pressure Solve') &&
+            page.settings.running.text.includes('Particle to Grid') &&
+            page.settings.running.text.includes('Grid to Particle')),
+        `dev panel has it: ${refactored.settings.running.text.includes('Pressure Solve')}, `
+        + `standalone panel has it: ${standalone.settings.running.text.includes('Pressure Solve')}`);
 
     const probeDiffs = new Map();
 

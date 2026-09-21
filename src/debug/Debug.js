@@ -16,12 +16,36 @@ export function createRuntimeStats()
     return {
         fps: 0,
         frameTime: 0,
+
         simulationTime: 0,
         renderTime: 0,
+
+        // What the simulation spent itself on, as the solver reports it
+        particleTime: 0,
+        particleToGridTime: 0,
+        pressureTime: 0,
+        gridToParticleTime: 0,
+        collisionTime: 0,
+        otherTime: 0,
+
         particleCount: 0,
         activeParticles: 0,
         gridCells: 0,
         fluidCells: 0
+    };
+}
+
+// The sink the solver writes its stage times into. It is cleared before every
+// step, so the panel shows what one frame cost rather than a running total.
+export function createTimings()
+{
+    return {
+        particleTime: 0,
+        particleToGridTime: 0,
+        pressureTime: 0,
+        gridToParticleTime: 0,
+        collisionTime: 0,
+        otherTime: 0
     };
 }
 
@@ -33,19 +57,32 @@ const SMOOTHING = 0.1;
 export function createDebug()
 {
     const stats = createRuntimeStats();
+    const timings = createTimings();
     let enabled = false;
     let previousFrame = 0;
     let smoothedFrameTime = 0;
 
+    function zeroTimings()
+    {
+        for (const key in timings)
+            timings[key] = 0;
+    }
+
     function reset()
     {
         Object.assign(stats, createRuntimeStats());
+        zeroTimings();
         previousFrame = 0;
         smoothedFrameTime = 0;
     }
 
+    function beginStep()
+    {
+        zeroTimings();
+    }
+
     // Called once per animation frame, and only while enabled.
-    function recordFrame(now, simulationTime, renderTime)
+    function recordStep({ now, simulationTime, renderTime })
     {
         if (previousFrame) {
             const frameTime = now - previousFrame;
@@ -60,6 +97,9 @@ export function createDebug()
 
         stats.simulationTime = simulationTime;
         stats.renderTime = renderTime;
+
+        for (const key in timings)
+            stats[key] = timings[key];
     }
 
     // Read from the solver's grid as it stands. This walks the cell array, so it
@@ -89,6 +129,7 @@ export function createDebug()
 
     return {
         stats,
+        timings,
 
         get enabled()
         {
@@ -103,7 +144,8 @@ export function createDebug()
         },
 
         reset,
-        recordFrame,
+        beginStep,
+        recordStep,
         refreshCounts
     };
 }

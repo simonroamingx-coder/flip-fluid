@@ -6,7 +6,8 @@ output verified identical to the original, not assumed identical.
 
 The page also carries two small panels: settings, where the particle count can be
 changed and applied, and debug, which reports frame rate, timings, particle
-counts and grid statistics while it is switched on. See
+counts, grid statistics and a stage-by-stage breakdown of the simulation while it
+is switched on. See
 [WORKFLOW.md](WORKFLOW.md) for how versions and releases work - committing is
 local, and pushing is the step you take when you are satisfied with a piece of
 work.

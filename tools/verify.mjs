@@ -68,7 +68,10 @@ steps.push({ label: 'version vs git tag', ok: versionCheck.ok, detail: versionCh
 // 4. The settings solver, as a pure function - fast, no browser.
 const settingsOk = run('settings solver', 'test/settings.mjs');
 
-// 5. Optionally, the provenance checks against the original demo. These only
+// 5. Stage profiling: the profiler must not perturb what it measures.
+const profilingOk = run('stage profiling', 'test/profiling.mjs');
+
+// 6. Optionally, the provenance checks against the original demo. These only
 //    pass while behaviour is unchanged, so they are opt-in once you start
 //    adding features.
 let parityOk = true;
@@ -95,6 +98,7 @@ line('rebuild index.html', bundled, stale ? 'was stale, regenerated - commit it'
 line('behaviour baseline', baselineOk, '');
 line('version vs git tag', versionCheck.ok, versionCheck.detail);
 line('settings solver', settingsOk, '');
+line('stage profiling', profilingOk, '');
 if (full) {
     line('parity with the original', parityOk, '');
     line('rendered output in Chrome', browserOk, '');
@@ -118,4 +122,4 @@ if (!bundled) {
     console.log(`RESULT: PASS - ${steps.length} step(s) clean${skipped ? `, ${skipped} skipped` : ''}`);
 }
 
-process.exitCode = (failed || !baselineOk || !settingsOk || (full && (!parityOk || !browserOk))) ? 1 : 0;
+process.exitCode = (failed || !baselineOk || !settingsOk || !profilingOk || (full && (!parityOk || !browserOk))) ? 1 : 0;
