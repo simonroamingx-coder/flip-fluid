@@ -7,7 +7,7 @@ Cutting a release is described in [WORKFLOW.md](WORKFLOW.md).
 
 ## v1.1.0 - Settings and debug panel
 
-**Complete, ready to release.** Specification: [docs/v1.1.0-settings-debug-panel.md](docs/v1.1.0-settings-debug-panel.md)
+**Released 2026-09-21.** Specification: [docs/v1.1.0-settings-debug-panel.md](docs/v1.1.0-settings-debug-panel.md)
 
 Everything the specification asks for:
 
