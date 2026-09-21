@@ -163,14 +163,15 @@ function panelScript()
 
         const digestBefore = stateDigest(entry.scene);
 
+        const setView = (id, value) => {
+            const input = document.getElementById(id);
+            input.checked = value;
+            input.dispatchEvent(new Event('change', { bubbles: true }));
+        };
+
         const picture = async (pressure, cellTypes) => {
-            const set = (id, value) => {
-                const input = document.getElementById(id);
-                input.checked = value;
-                input.dispatchEvent(new Event('change', { bubbles: true }));
-            };
-            set('showPressure', pressure);
-            set('showCellTypes', cellTypes);
+            setView('showPressure', pressure);
+            setView('showCellTypes', cellTypes);
             await wait(300);
             entry.draw();
             return document.getElementById('myCanvas').toDataURL('image/png');
@@ -194,9 +195,27 @@ function panelScript()
         views.cellsField = await picture(false, true);
         entry.scene.showParticles = hadParticles;
 
+        // How often the field is recomputed, against how often we are drawing.
+        // A field that steps a few times a second is what reads as stutter.
+        entry.scene.paused = false;
+        await wait(300);
+
+        const windowStart = performance.now();
+        const updatesStart = entry.debug.fieldUpdates;
+        await wait(1000);
+        views.updatesPerSecond = (entry.debug.fieldUpdates - updatesStart)
+            / ((performance.now() - windowStart) / 1000);
+        views.fpsWithField = entry.debug.stats.fps;
+
+        // And what the view costs: frame rate with it on against with it off.
+        setView('showPressure', false);
+        setView('showCellTypes', false);
+        await wait(900);
+        views.fpsWithoutField = entry.debug.stats.fps;
+
         // Running again, so the screenshot taken after this shows live numbers
         // rather than a paused panel reading zero.
-        entry.scene.paused = false;
+        setView('showCellTypes', true);
         await wait(250);
 
         // Left running on purpose: the screenshot taken after this shows live
@@ -771,6 +790,22 @@ try {
     check('debug views do not change the simulation',
         [refactored, standalone].every(page => page.settings.views.digestUnchanged),
         'switching views on and off leaves the simulation state untouched');
+
+    // The field is recomputed per drawn frame rather than at the panel's refresh
+    // rate. Stepping it a few times a second is what made it look like stutter.
+    check('the field is refreshed every frame',
+        [refactored, standalone].every(page =>
+            page.settings.views.updatesPerSecond > page.settings.views.fpsWithField * 0.8),
+        `dev ${refactored.settings.views.updatesPerSecond.toFixed(0)} updates/s at `
+        + `${refactored.settings.views.fpsWithField.toFixed(0)} fps, `
+        + `standalone ${standalone.settings.views.updatesPerSecond.toFixed(0)} at `
+        + `${standalone.settings.views.fpsWithField.toFixed(0)}`);
+
+    check('a field view is not a frame-rate cliff',
+        [refactored, standalone].every(page =>
+            page.settings.views.fpsWithField > page.settings.views.fpsWithoutField * 0.6),
+        `dev ${refactored.settings.views.fpsWithField.toFixed(0)} fps with the view, `
+        + `${refactored.settings.views.fpsWithoutField.toFixed(0)} without`);
 
     const probeDiffs = new Map();
 

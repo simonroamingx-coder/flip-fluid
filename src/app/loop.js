@@ -37,6 +37,11 @@ export function startLoop({ scene, drawFrame, debug, onSample, sampleIntervalMs 
 
         const afterSimulate = performance.now();
 
+        // Recomputed every frame while a view is on, so the field moves with the
+        // simulation instead of stepping a few times a second.
+        if (debug && debug.enabled)
+            debug.updateField(scene);
+
         drawFrame();
         const afterDraw = performance.now();
 
@@ -50,7 +55,6 @@ export function startLoop({ scene, drawFrame, debug, onSample, sampleIntervalMs 
             if (onSample && now - lastSample >= sampleIntervalMs) {
                 lastSample = now;
                 debug.refreshCounts(scene);
-                debug.refreshFields(scene);
                 onSample(debug.stats);
             }
         }

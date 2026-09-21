@@ -6,7 +6,10 @@
 // lazily inside the per-frame draw path.
 
 import { createShader, getLocations } from './glUtils.js';
-import { pointVertexShader, pointFragmentShader, meshVertexShader, meshFragmentShader } from './shaders.js';
+import {
+    pointVertexShader, pointFragmentShader, meshVertexShader, meshFragmentShader,
+    fieldVertexShader, fieldFragmentShader
+} from './shaders.js';
 
 const NUM_SEGS = 50;
 
@@ -21,8 +24,10 @@ export class Renderer
 
         this.pointShader = null;
         this.meshShader = null;
+        this.fieldShader = null;
         this.pointLocations = null;
         this.meshLocations = null;
+        this.fieldLocations = null;
 
         this.pointVertexBuffer = null;
         this.pointColorBuffer = null;
@@ -30,6 +35,9 @@ export class Renderer
         this.gridColorBuffer = null;
         this.diskVertBuffer = null;
         this.diskIdBuffer = null;
+        this.fieldQuadBuffer = null;
+        this.fieldTexture = null;
+        this.fieldTextureSize = { width: 0, height: 0 };
     }
 
     init(fluid)
@@ -42,6 +50,7 @@ export class Renderer
         if (!this.pointShader) {
             this.pointShader = createShader(gl, pointVertexShader, pointFragmentShader);
             this.meshShader = createShader(gl, meshVertexShader, meshFragmentShader);
+            this.fieldShader = createShader(gl, fieldVertexShader, fieldFragmentShader);
 
             this.pointLocations = getLocations(
                 gl, this.pointShader,
@@ -52,7 +61,23 @@ export class Renderer
                 gl, this.meshShader,
                 ['domainSize', 'color', 'translation', 'scale'],
                 ['attrPosition']);
+
+            this.fieldLocations = getLocations(
+                gl, this.fieldShader,
+                ['domainSize', 'field'],
+                ['attrPosition', 'attrUV']);
         }
+
+        if (!this.fieldTexture) {
+            this.fieldTexture = gl.createTexture();
+            gl.bindTexture(gl.TEXTURE_2D, this.fieldTexture);
+            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+            gl.bindTexture(gl.TEXTURE_2D, null);
+        }
+        this.fieldTextureSize = { width: 0, height: 0 };
 
         // Buffers are sized from the grid and the particle count, so a rebuilt
         // scene needs new ones. The old ones are released rather than leaked.
@@ -109,13 +134,27 @@ export class Renderer
         gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, this.diskIdBuffer);
         gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, diskIds, gl.DYNAMIC_DRAW);
         gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, null);
+
+        // the quad the debug fields are drawn on: one rectangle covering the grid
+        this.fieldQuadBuffer = gl.createBuffer();
+        const gridWidth = fluid.fNumX * fluid.h;
+        const gridHeight = fluid.fNumY * fluid.h;
+        const quad = new Float32Array([
+            0, 0, 0, 0,
+            gridWidth, 0, 1, 0,
+            0, gridHeight, 0, 1,
+            gridWidth, gridHeight, 1, 1
+        ]);
+        gl.bindBuffer(gl.ARRAY_BUFFER, this.fieldQuadBuffer);
+        gl.bufferData(gl.ARRAY_BUFFER, quad, gl.STATIC_DRAW);
+        gl.bindBuffer(gl.ARRAY_BUFFER, null);
     }
 
     disposeBuffers()
     {
         const gl = this.gl;
         const names = ['gridVertBuffer', 'gridColorBuffer', 'pointVertexBuffer',
-            'pointColorBuffer', 'diskVertBuffer', 'diskIdBuffer'];
+            'pointColorBuffer', 'diskVertBuffer', 'diskIdBuffer', 'fieldQuadBuffer'];
 
         for (const name of names) {
             if (this[name]) {
@@ -139,7 +178,7 @@ export class Renderer
         gl.viewport(0, 0, this.canvas.width, this.canvas.height);
 
         if (field)
-            this.drawCells(field.colors, fluid, field.scale * fluid.h / this.simWidth * this.canvas.width);
+            this.drawField(field.colors, fluid);
         else if (scene.showGrid)
             this.drawCells(fluid.cellColor, fluid, 0.9 * fluid.h / this.simWidth * this.canvas.width);
 
@@ -177,6 +216,46 @@ export class Renderer
         gl.disableVertexAttribArray(loc.attributes.attrColor);
 
         gl.bindBuffer(gl.ARRAY_BUFFER, null);
+    }
+
+    // A debug field, drawn as one textured quad over the grid. One draw call and
+    // an upload of three bytes per cell, against tens of thousands of sprites for
+    // the point-based version - which is what allows it to be refreshed every
+    // frame rather than a few times a second.
+    drawField(colors, fluid)
+    {
+        const gl = this.gl;
+        const loc = this.fieldLocations;
+        const width = fluid.fNumX;
+        const height = fluid.fNumY;
+
+        gl.useProgram(this.fieldShader);
+        gl.uniform2f(loc.uniforms.domainSize, this.simWidth, this.simHeight);
+
+        gl.activeTexture(gl.TEXTURE0);
+        gl.bindTexture(gl.TEXTURE_2D, this.fieldTexture);
+        gl.uniform1i(loc.uniforms.field, 0);
+        gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
+
+        if (this.fieldTextureSize.width !== width || this.fieldTextureSize.height !== height) {
+            gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGB, width, height, 0, gl.RGB, gl.UNSIGNED_BYTE, colors);
+            this.fieldTextureSize = { width, height };
+        } else {
+            gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, width, height, gl.RGB, gl.UNSIGNED_BYTE, colors);
+        }
+
+        gl.bindBuffer(gl.ARRAY_BUFFER, this.fieldQuadBuffer);
+        gl.enableVertexAttribArray(loc.attributes.attrPosition);
+        gl.vertexAttribPointer(loc.attributes.attrPosition, 2, gl.FLOAT, false, 16, 0);
+        gl.enableVertexAttribArray(loc.attributes.attrUV);
+        gl.vertexAttribPointer(loc.attributes.attrUV, 2, gl.FLOAT, false, 16, 8);
+
+        gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+
+        gl.disableVertexAttribArray(loc.attributes.attrPosition);
+        gl.disableVertexAttribArray(loc.attributes.attrUV);
+        gl.bindBuffer(gl.ARRAY_BUFFER, null);
+        gl.bindTexture(gl.TEXTURE_2D, null);
     }
 
     drawParticles(fluid)

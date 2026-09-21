@@ -1103,12 +1103,34 @@ __mods["src/debug/fields.js"] = function (__exports, __req) {
 
 const { FLUID_CELL, SOLID_CELL } = __req("src/core/constants.js");
 
+// The colour arrays are uploaded as a texture, one texel per cell, so they have
+// to be written in texture order - row by row, with y varying slowest. The solver
+// stores its cells the other way round (index = x * fNumY + y, x varying slowest),
+// so this mapping lives here rather than being spelled out at each use. Getting it
+// backwards is not subtle: every field comes out transposed.
+function texelOffset(fluid, xi, yi)
+{
+    return 3 * (yi * fluid.fNumX + xi);
+}
+
 // Pressure is signed, so it is mapped diverging around zero: blue where the
 // solver is pulling, red where it is pushing, dark at rest. That is a different
 // question from the density ramp the grid view draws, which is why it is not the
 // same mapping. Each side is scaled to its own largest value, so a field that is
 // mostly one sign still uses the whole colour range instead of washing out.
-function writePressureColors(fluid, colors)
+// The scale is smoothed rather than recomputed flat, because the whole field
+// gets brighter or darker whenever the peak moves, and a peak that jumps every
+// frame makes the picture flicker. Rising fast so a real spike is visible,
+// falling slowly so the field settles instead of strobing.
+const RISE = 0.25;
+const FALL = 0.01;
+
+function createPressureRange()
+{
+    return { positive: 0, negative: 0 };
+}
+
+function writePressureColors(fluid, colors, range)
 {
     let mostPositive = 0;
     let mostNegative = 0;
@@ -1123,20 +1145,30 @@ function writePressureColors(fluid, colors)
             mostNegative = -fluid.p[i];
     }
 
-    for (let i = 0; i < fluid.fNumCells; i++) {
-        const offset = 3 * i;
+    range.positive += (mostPositive - range.positive) * (mostPositive > range.positive ? RISE : FALL);
+    range.negative += (mostNegative - range.negative) * (mostNegative > range.negative ? RISE : FALL);
 
-        if (fluid.cellType[i] !== FLUID_CELL) {
-            colors[offset] = 0;
+    for (let yi = 0; yi < fluid.fNumY; yi++) {
+        for (let xi = 0; xi < fluid.fNumX; xi++) {
+            const cell = xi * fluid.fNumY + yi;
+            const offset = texelOffset(fluid, xi, yi);
+
+            if (fluid.cellType[cell] !== FLUID_CELL) {
+                colors[offset] = 0;
+                colors[offset + 1] = 0;
+                colors[offset + 2] = 0;
+                continue;
+            }
+
+            const pressure = fluid.p[cell];
+            colors[offset] = pressure > 0 && range.positive
+                ? Math.min(255, Math.round(255 * pressure / range.positive))
+                : 0;
             colors[offset + 1] = 0;
-            colors[offset + 2] = 0;
-            continue;
+            colors[offset + 2] = pressure < 0 && range.negative
+                ? Math.min(255, Math.round(255 * -pressure / range.negative))
+                : 0;
         }
-
-        const pressure = fluid.p[i];
-        colors[offset] = pressure > 0 && mostPositive ? pressure / mostPositive : 0;
-        colors[offset + 1] = 0;
-        colors[offset + 2] = pressure < 0 && mostNegative ? -pressure / mostNegative : 0;
     }
 }
 
@@ -1145,26 +1177,29 @@ function writePressureColors(fluid, colors)
 // collision view: the solid cells are the surfaces particles are pushed off.
 function writeCellTypes(fluid, colors)
 {
-    for (let i = 0; i < fluid.fNumCells; i++) {
-        const offset = 3 * i;
-        const type = fluid.cellType[i];
+    for (let yi = 0; yi < fluid.fNumY; yi++) {
+        for (let xi = 0; xi < fluid.fNumX; xi++) {
+            const offset = texelOffset(fluid, xi, yi);
+            const type = fluid.cellType[xi * fluid.fNumY + yi];
 
-        if (type === SOLID_CELL) {
-            colors[offset] = 0.62;
-            colors[offset + 1] = 0.62;
-            colors[offset + 2] = 0.62;
-        } else if (type === FLUID_CELL) {
-            colors[offset] = 0.15;
-            colors[offset + 1] = 0.35;
-            colors[offset + 2] = 1.0;
-        } else {
-            colors[offset] = 0.04;
-            colors[offset + 1] = 0.05;
-            colors[offset + 2] = 0.10;
+            if (type === SOLID_CELL) {
+                colors[offset] = 158;
+                colors[offset + 1] = 158;
+                colors[offset + 2] = 158;
+            } else if (type === FLUID_CELL) {
+                colors[offset] = 38;
+                colors[offset + 1] = 89;
+                colors[offset + 2] = 255;
+            } else {
+                colors[offset] = 10;
+                colors[offset + 1] = 13;
+                colors[offset + 2] = 26;
+            }
         }
     }
 }
 
+	__exports.createPressureRange = createPressureRange;
 	__exports.writePressureColors = writePressureColors;
 	__exports.writeCellTypes = writeCellTypes;
 };
@@ -1183,7 +1218,7 @@ __mods["src/debug/Debug.js"] = function (__exports, __req) {
 // The panel formats what is here. It does not compute anything.
 
 const { FLUID_CELL } = __req("src/core/constants.js");
-const { writePressureColors, writeCellTypes } = __req("src/debug/fields.js");
+const { createPressureRange, writePressureColors, writeCellTypes } = __req("src/debug/fields.js");
 
 function createRuntimeStats()
 {
@@ -1241,6 +1276,8 @@ function createDebug()
     let views = { pressure: false, cellTypes: false };
     let pressureColors = null;
     let cellTypeColors = null;
+    const pressureRange = createPressureRange();
+    let fieldUpdates = 0;
 
     function zeroTimings()
     {
@@ -1252,6 +1289,9 @@ function createDebug()
     {
         Object.assign(stats, createRuntimeStats());
         zeroTimings();
+        pressureRange.positive = 0;
+        pressureRange.negative = 0;
+        fieldUpdates = 0;
         previousFrame = 0;
         smoothedFrameTime = 0;
     }
@@ -1313,28 +1353,33 @@ function createDebug()
         if (pressureColors && pressureColors.length === needed)
             return;
 
-        pressureColors = new Float32Array(needed);
-        cellTypeColors = new Float32Array(needed);
+        pressureColors = new Uint8Array(needed);
+        cellTypeColors = new Uint8Array(needed);
     }
 
-    // Recomputes the colour buffers for whichever views are on. Cells are
-    // classified first, so a view switched on while the simulation is paused
-    // describes the grid the next step would use rather than an empty one.
-    // Called at the panel's refresh rate, not every frame: the colours only
-    // change when the simulation does.
-    function refreshFields(scene)
+    // Recomputes the colour buffer for whichever view is on. This runs every
+    // frame, not at the panel's refresh rate: a field that steps a few times a
+    // second reads as stutter, and the upload that follows is one quad rather
+    // than one sprite per cell. The cost is a single pass over the cells, and
+    // only while a view is switched on.
+    //
+    // Cells are classified first, so a view switched on while the simulation is
+    // paused describes the grid the next step would use rather than an empty one.
+    function updateField(scene)
     {
-        const fluid = scene.fluid;
-        if (!fluid || (!views.pressure && !views.cellTypes))
+        const fluid = scene && scene.fluid;
+        if (!fluid || !enabled || (!views.pressure && !views.cellTypes))
             return;
 
         fluid.classifyCells();
         ensureBuffers(fluid);
 
         if (views.pressure)
-            writePressureColors(fluid, pressureColors);
+            writePressureColors(fluid, pressureColors, pressureRange);
         if (views.cellTypes)
             writeCellTypes(fluid, cellTypeColors);
+
+        fieldUpdates++;
     }
 
     // What the renderer should draw over the simulation, if anything. The buffer
@@ -1349,7 +1394,7 @@ function createDebug()
         if (!colors || colors.length !== 3 * scene.fluid.fNumCells)
             return null;
 
-        return { colors, scale: 1.0 };
+        return { colors };
     }
 
     return {
@@ -1359,6 +1404,13 @@ function createDebug()
         get views()
         {
             return { ...views };
+        },
+
+        // How many times the field has been recomputed. It is here so a test can
+        // tell "every frame" from "a few times a second".
+        get fieldUpdates()
+        {
+            return fieldUpdates;
         },
 
         setViews(value)
@@ -1384,7 +1436,7 @@ function createDebug()
         beginStep,
         recordStep,
         refreshCounts,
-        refreshFields,
+        updateField,
         fieldView
     };
 }
@@ -1513,10 +1565,44 @@ const meshFragmentShader = `
     }
 `;
 
+// The debug field views draw the grid as a texture rather than as one fat point
+// per cell: one quad instead of tens of thousands of sprites, and it can be
+// refreshed every frame. Nearest filtering keeps the cells square, so what you
+// see is the grid the solver works on.
+const fieldVertexShader = `
+    attribute vec2 attrPosition;
+    attribute vec2 attrUV;
+    uniform vec2 domainSize;
+
+    varying vec2 fragUV;
+
+    void main() {
+    vec4 screenTransform =
+        vec4(2.0 / domainSize.x, 2.0 / domainSize.y, -1.0, -1.0);
+    gl_Position =
+        vec4(attrPosition * screenTransform.xy + screenTransform.zw, 0.0, 1.0);
+
+    fragUV = attrUV;
+    }
+`;
+
+const fieldFragmentShader = `
+    precision mediump float;
+    uniform sampler2D field;
+
+    varying vec2 fragUV;
+
+    void main() {
+        gl_FragColor = vec4(texture2D(field, fragUV).rgb, 1.0);
+    }
+`;
+
 	__exports.pointVertexShader = pointVertexShader;
 	__exports.pointFragmentShader = pointFragmentShader;
 	__exports.meshVertexShader = meshVertexShader;
 	__exports.meshFragmentShader = meshFragmentShader;
+	__exports.fieldVertexShader = fieldVertexShader;
+	__exports.fieldFragmentShader = fieldFragmentShader;
 };
 
 __mods["src/render/Renderer.js"] = function (__exports, __req) {
@@ -1529,7 +1615,7 @@ __mods["src/render/Renderer.js"] = function (__exports, __req) {
 // lazily inside the per-frame draw path.
 
 const { createShader, getLocations } = __req("src/render/glUtils.js");
-const { pointVertexShader, pointFragmentShader, meshVertexShader, meshFragmentShader } = __req("src/render/shaders.js");
+const { pointVertexShader, pointFragmentShader, meshVertexShader, meshFragmentShader, fieldVertexShader, fieldFragmentShader } = __req("src/render/shaders.js");
 
 const NUM_SEGS = 50;
 
@@ -1544,8 +1630,10 @@ class Renderer
 
         this.pointShader = null;
         this.meshShader = null;
+        this.fieldShader = null;
         this.pointLocations = null;
         this.meshLocations = null;
+        this.fieldLocations = null;
 
         this.pointVertexBuffer = null;
         this.pointColorBuffer = null;
@@ -1553,6 +1641,9 @@ class Renderer
         this.gridColorBuffer = null;
         this.diskVertBuffer = null;
         this.diskIdBuffer = null;
+        this.fieldQuadBuffer = null;
+        this.fieldTexture = null;
+        this.fieldTextureSize = { width: 0, height: 0 };
     }
 
     init(fluid)
@@ -1565,6 +1656,7 @@ class Renderer
         if (!this.pointShader) {
             this.pointShader = createShader(gl, pointVertexShader, pointFragmentShader);
             this.meshShader = createShader(gl, meshVertexShader, meshFragmentShader);
+            this.fieldShader = createShader(gl, fieldVertexShader, fieldFragmentShader);
 
             this.pointLocations = getLocations(
                 gl, this.pointShader,
@@ -1575,7 +1667,23 @@ class Renderer
                 gl, this.meshShader,
                 ['domainSize', 'color', 'translation', 'scale'],
                 ['attrPosition']);
+
+            this.fieldLocations = getLocations(
+                gl, this.fieldShader,
+                ['domainSize', 'field'],
+                ['attrPosition', 'attrUV']);
         }
+
+        if (!this.fieldTexture) {
+            this.fieldTexture = gl.createTexture();
+            gl.bindTexture(gl.TEXTURE_2D, this.fieldTexture);
+            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+            gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+            gl.bindTexture(gl.TEXTURE_2D, null);
+        }
+        this.fieldTextureSize = { width: 0, height: 0 };
 
         // Buffers are sized from the grid and the particle count, so a rebuilt
         // scene needs new ones. The old ones are released rather than leaked.
@@ -1632,13 +1740,27 @@ class Renderer
         gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, this.diskIdBuffer);
         gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, diskIds, gl.DYNAMIC_DRAW);
         gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, null);
+
+        // the quad the debug fields are drawn on: one rectangle covering the grid
+        this.fieldQuadBuffer = gl.createBuffer();
+        const gridWidth = fluid.fNumX * fluid.h;
+        const gridHeight = fluid.fNumY * fluid.h;
+        const quad = new Float32Array([
+            0, 0, 0, 0,
+            gridWidth, 0, 1, 0,
+            0, gridHeight, 0, 1,
+            gridWidth, gridHeight, 1, 1
+        ]);
+        gl.bindBuffer(gl.ARRAY_BUFFER, this.fieldQuadBuffer);
+        gl.bufferData(gl.ARRAY_BUFFER, quad, gl.STATIC_DRAW);
+        gl.bindBuffer(gl.ARRAY_BUFFER, null);
     }
 
     disposeBuffers()
     {
         const gl = this.gl;
         const names = ['gridVertBuffer', 'gridColorBuffer', 'pointVertexBuffer',
-            'pointColorBuffer', 'diskVertBuffer', 'diskIdBuffer'];
+            'pointColorBuffer', 'diskVertBuffer', 'diskIdBuffer', 'fieldQuadBuffer'];
 
         for (const name of names) {
             if (this[name]) {
@@ -1662,7 +1784,7 @@ class Renderer
         gl.viewport(0, 0, this.canvas.width, this.canvas.height);
 
         if (field)
-            this.drawCells(field.colors, fluid, field.scale * fluid.h / this.simWidth * this.canvas.width);
+            this.drawField(field.colors, fluid);
         else if (scene.showGrid)
             this.drawCells(fluid.cellColor, fluid, 0.9 * fluid.h / this.simWidth * this.canvas.width);
 
@@ -1700,6 +1822,46 @@ class Renderer
         gl.disableVertexAttribArray(loc.attributes.attrColor);
 
         gl.bindBuffer(gl.ARRAY_BUFFER, null);
+    }
+
+    // A debug field, drawn as one textured quad over the grid. One draw call and
+    // an upload of three bytes per cell, against tens of thousands of sprites for
+    // the point-based version - which is what allows it to be refreshed every
+    // frame rather than a few times a second.
+    drawField(colors, fluid)
+    {
+        const gl = this.gl;
+        const loc = this.fieldLocations;
+        const width = fluid.fNumX;
+        const height = fluid.fNumY;
+
+        gl.useProgram(this.fieldShader);
+        gl.uniform2f(loc.uniforms.domainSize, this.simWidth, this.simHeight);
+
+        gl.activeTexture(gl.TEXTURE0);
+        gl.bindTexture(gl.TEXTURE_2D, this.fieldTexture);
+        gl.uniform1i(loc.uniforms.field, 0);
+        gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
+
+        if (this.fieldTextureSize.width !== width || this.fieldTextureSize.height !== height) {
+            gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGB, width, height, 0, gl.RGB, gl.UNSIGNED_BYTE, colors);
+            this.fieldTextureSize = { width, height };
+        } else {
+            gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, width, height, gl.RGB, gl.UNSIGNED_BYTE, colors);
+        }
+
+        gl.bindBuffer(gl.ARRAY_BUFFER, this.fieldQuadBuffer);
+        gl.enableVertexAttribArray(loc.attributes.attrPosition);
+        gl.vertexAttribPointer(loc.attributes.attrPosition, 2, gl.FLOAT, false, 16, 0);
+        gl.enableVertexAttribArray(loc.attributes.attrUV);
+        gl.vertexAttribPointer(loc.attributes.attrUV, 2, gl.FLOAT, false, 16, 8);
+
+        gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+
+        gl.disableVertexAttribArray(loc.attributes.attrPosition);
+        gl.disableVertexAttribArray(loc.attributes.attrUV);
+        gl.bindBuffer(gl.ARRAY_BUFFER, null);
+        gl.bindTexture(gl.TEXTURE_2D, null);
     }
 
     drawParticles(fluid)
@@ -2107,6 +2269,11 @@ function startLoop({ scene, drawFrame, debug, onSample, sampleIntervalMs = 150 }
 
         const afterSimulate = performance.now();
 
+        // Recomputed every frame while a view is on, so the field moves with the
+        // simulation instead of stepping a few times a second.
+        if (debug && debug.enabled)
+            debug.updateField(scene);
+
         drawFrame();
         const afterDraw = performance.now();
 
@@ -2120,7 +2287,6 @@ function startLoop({ scene, drawFrame, debug, onSample, sampleIntervalMs = 150 }
             if (onSample && now - lastSample >= sampleIntervalMs) {
                 lastSample = now;
                 debug.refreshCounts(scene);
-                debug.refreshFields(scene);
                 onSample(debug.stats);
             }
         }
@@ -2210,7 +2376,7 @@ function applyParticleCount(requested)
     debug.reset();
     if (debug.enabled) {
         debug.refreshCounts(scene);
-        debug.refreshFields(scene);
+        debug.updateField(scene);
         debugPanel.update(debug.stats);
     }
 
@@ -2240,7 +2406,7 @@ const debugPanel = attachDebugPanel(document, {
 
         if (value) {
             debug.refreshCounts(scene);
-            debug.refreshFields(scene);
+            debug.updateField(scene);
             debugPanel.update(debug.stats);
         } else {
             // A view with the collector switched off is neither collected nor
@@ -2255,7 +2421,7 @@ const debugPanel = attachDebugPanel(document, {
         config.debug.showPressure = views.pressure;
         config.debug.showCellTypes = views.cellTypes;
         debug.setViews(views);
-        debug.refreshFields(scene);
+        debug.updateField(scene);
     }
 });
 

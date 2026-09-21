@@ -1,15 +1,16 @@
-// Do the debug views show the solver's own data, and only read it?
+// Do the debug views show the solver's own data, in the right places, and only
+// read it?
 //
 //   node test/fields.mjs
 //
-// The views are a colour mapping over fluid.p and fluid.cellType. Two things
-// have to hold: the picture is derived from what the solver actually holds, and
-// drawing it cannot change the simulation. The second one is checked the same
-// way as the profiler is: take a full snapshot of the state, write every view,
-// and compare.
+// The views write a colour per cell into a buffer that is uploaded as a texture.
+// Three things have to hold: the picture is derived from what the solver holds,
+// it is laid out the way the texture expects, and drawing it cannot change the
+// simulation. The last one is checked the same way as the profiler is - take a
+// full snapshot of the state, write every view, compare.
 
 import { AIR_CELL, FLUID_CELL, SOLID_CELL } from '../src/core/constants.js';
-import { writePressureColors, writeCellTypes } from '../src/debug/fields.js';
+import { createPressureRange, writePressureColors, writeCellTypes } from '../src/debug/fields.js';
 import { domainForViewport, loadRefactored, snapshot, stepRefactored } from './lib/harness.mjs';
 
 const results = [];
@@ -25,12 +26,19 @@ for (let step = 0; step < 10; step++)
 const fluid = build.scene.fluid;
 fluid.classifyCells();
 
-const colors = new Float32Array(3 * fluid.fNumCells);
+const colors = new Uint8Array(3 * fluid.fNumCells);
+const range = createPressureRange();
+
+// Colours are written in texture order: one texel per cell, row by row, with y
+// varying slowest. The solver indexes its cells the other way round, so both
+// mappings are spelled out here once.
+const texel = (xi, yi) => 3 * (yi * fluid.fNumX + xi);
+const cellAt = (xi, yi) => xi * fluid.fNumY + yi;
 
 // ------------------------------------------------- views must not write back
 
 const before = snapshot(fluid, build.scene);
-writePressureColors(fluid, colors);
+writePressureColors(fluid, colors, range);
 writeCellTypes(fluid, colors);
 const after = snapshot(fluid, build.scene);
 
@@ -40,7 +48,10 @@ check('views only read the solver', changed.length === 0,
 
 // ------------------------------------------------------------ the pressure view
 
-writePressureColors(fluid, colors);
+// The colour scale is smoothed, so let it settle the way it would over a second
+// of frames before judging the result.
+for (let frame = 0; frame < 30; frame++)
+    writePressureColors(fluid, colors, range);
 
 let fluidCells = 0;
 let positive = 0;
@@ -48,28 +59,34 @@ let negative = 0;
 let coloured = 0;
 let wrong = 0;
 
-for (let i = 0; i < fluid.fNumCells; i++) {
-    const offset = 3 * i;
-    const red = colors[offset];
-    const green = colors[offset + 1];
-    const blue = colors[offset + 2];
+for (let yi = 0; yi < fluid.fNumY; yi++) {
+    for (let xi = 0; xi < fluid.fNumX; xi++) {
+        const offset = texel(xi, yi);
+        const cell = cellAt(xi, yi);
+        const red = colors[offset];
+        const green = colors[offset + 1];
+        const blue = colors[offset + 2];
 
-    if (red < 0 || red > 1 || green < 0 || green > 1 || blue < 0 || blue > 1) {
-        wrong++;
-        continue;
+        if (red > 255 || green > 255 || blue > 255) {
+            wrong++;
+            continue;
+        }
+
+        if (fluid.cellType[cell] !== FLUID_CELL) {
+            if (red || green || blue) wrong++;      // air and solid are not fluid
+            continue;
+        }
+
+        fluidCells++;
+        if (red || blue) coloured++;
+
+        // Sign is what the view is for: pushing is red, pulling is blue, and a
+        // cell must never come out on the wrong side. One whose pressure is a
+        // tiny fraction of the scale rounds to black, which is invisible rather
+        // than wrong, so only the opposite colour counts as a failure.
+        if (fluid.p[cell] > 0) { positive++; if (blue > 0) wrong++; }
+        if (fluid.p[cell] < 0) { negative++; if (red > 0) wrong++; }
     }
-
-    if (fluid.cellType[i] !== FLUID_CELL) {
-        if (red || green || blue) wrong++;      // air and solid are not fluid
-        continue;
-    }
-
-    fluidCells++;
-    if (red || blue) coloured++;
-
-    // Sign is what the view is for: pushing is red, pulling is blue.
-    if (fluid.p[i] > 0) { positive++; if (!(red > 0 && blue === 0)) wrong++; }
-    if (fluid.p[i] < 0) { negative++; if (!(blue > 0 && red === 0)) wrong++; }
 }
 
 check('pressure view is in range and signed', wrong === 0,
@@ -78,57 +95,79 @@ check('pressure view is in range and signed', wrong === 0,
 check('pressure view is not blank', coloured > fluidCells * 0.2,
     `${coloured} of ${fluidCells} fluid cells carry a colour`);
 
+check('pressure scale settles', range.positive > 0 && range.negative > 0,
+    `pushing up to ${range.positive.toFixed(4)}, pulling to ${range.negative.toFixed(4)}`);
+
 // ------------------------------------------------------- the cell type view
 
 writeCellTypes(fluid, colors);
 
-let solids = 0;
-let air = 0;
-let fluids = 0;
-let mismatched = 0;
+const SOLID = [158, 158, 158];
+const FLUID = [38, 89, 255];
+const AIR = [10, 13, 26];
 
-for (let i = 0; i < fluid.fNumCells; i++) {
-    const offset = 3 * i;
-    const red = colors[offset];
-    const blue = colors[offset + 2];
+const isColour = (offset, colour) => colors[offset] === colour[0]
+    && colors[offset + 1] === colour[1]
+    && colors[offset + 2] === colour[2];
 
-    if (fluid.cellType[i] === SOLID_CELL) {
-        solids++;
-        if (Math.abs(red - blue) > 0.01) mismatched++;       // grey: red equals blue
-    } else if (fluid.cellType[i] === FLUID_CELL) {
-        fluids++;
-        if (!(blue > red)) mismatched++;                     // fluid is blue
-    } else {
-        air++;
-        if (!(red < 0.2 && blue < 0.2)) mismatched++;        // air is nearly black
+const drawn = { solid: 0, fluid: 0, air: 0, other: 0 };
+
+for (let yi = 0; yi < fluid.fNumY; yi++) {
+    for (let xi = 0; xi < fluid.fNumX; xi++) {
+        const offset = texel(xi, yi);
+        if (isColour(offset, SOLID)) drawn.solid++;
+        else if (isColour(offset, FLUID)) drawn.fluid++;
+        else if (isColour(offset, AIR)) drawn.air++;
+        else drawn.other++;
     }
 }
 
-check('cell view separates the three types', mismatched === 0 && solids > 0 && fluids > 0 && air > 0,
-    mismatched ? `${mismatched} cells drawn as the wrong type`
-        : `${solids} solid, ${fluids} fluid, ${air} air`);
+const inGrid = { solid: 0, fluid: 0, air: 0 };
 
-check('solid cells match the solver', solids === [...fluid.cellType].filter(type => type === SOLID_CELL).length,
-    'every solid cell in the grid is drawn as one');
+for (let i = 0; i < fluid.fNumCells; i++) {
+    if (fluid.cellType[i] === SOLID_CELL) inGrid.solid++;
+    else if (fluid.cellType[i] === FLUID_CELL) inGrid.fluid++;
+    else inGrid.air++;
+}
+
+check('cell view draws every cell as its own type',
+    drawn.other === 0
+    && drawn.solid === inGrid.solid && drawn.fluid === inGrid.fluid && drawn.air === inGrid.air,
+    `drawn ${drawn.solid} solid, ${drawn.fluid} fluid, ${drawn.air} air`
+    + ` | grid ${inGrid.solid}, ${inGrid.fluid}, ${inGrid.air}`
+    + (drawn.other ? ` | ${drawn.other} unrecognised` : ''));
+
+// Orientation, checked without reusing the mapping above: setupScene makes the
+// tank floor solid (row j = 0), so the first row of the texture has to be solid.
+// If the writing order were transposed, that row would be a column instead and
+// this would read as mostly fluid.
+let floorSolid = 0;
+for (let xi = 0; xi < fluid.fNumX; xi++) {
+    if (isColour(3 * xi, SOLID))
+        floorSolid++;
+}
+
+check('the field is the right way up', floorSolid === fluid.fNumX,
+    `the first texture row is ${floorSolid} of ${fluid.fNumX} solid cells - the tank floor`);
 
 // ------------------------------------------------------------------- report
 
 function fmt(label, value, ok)
 {
-    const padding = ' '.repeat(Math.max(0, 34 - label.length));
+    const padding = ' '.repeat(Math.max(0, 36 - label.length));
     return `${label}${padding}${value}${ok ? '' : '   <-- FAIL'}`;
 }
 
 console.log('');
-console.log('debug views over the solver data');
+console.log('debug views over the solver data, ' + fluid.fNumX + 'x' + fluid.fNumY + ' cells');
 console.log('');
 console.log(fmt('check', 'detail', true));
-console.log('-'.repeat(96));
+console.log('-'.repeat(100));
 
 for (const result of results)
     console.log(fmt(result.name, result.detail, result.ok));
 
-console.log('-'.repeat(96));
+console.log('-'.repeat(100));
 
 const failed = results.filter(result => !result.ok);
 

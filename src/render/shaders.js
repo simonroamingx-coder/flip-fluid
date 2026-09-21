@@ -69,3 +69,35 @@ export const meshFragmentShader = `
         gl_FragColor = vec4(fragColor, 1.0);
     }
 `;
+
+// The debug field views draw the grid as a texture rather than as one fat point
+// per cell: one quad instead of tens of thousands of sprites, and it can be
+// refreshed every frame. Nearest filtering keeps the cells square, so what you
+// see is the grid the solver works on.
+export const fieldVertexShader = `
+    attribute vec2 attrPosition;
+    attribute vec2 attrUV;
+    uniform vec2 domainSize;
+
+    varying vec2 fragUV;
+
+    void main() {
+    vec4 screenTransform =
+        vec4(2.0 / domainSize.x, 2.0 / domainSize.y, -1.0, -1.0);
+    gl_Position =
+        vec4(attrPosition * screenTransform.xy + screenTransform.zw, 0.0, 1.0);
+
+    fragUV = attrUV;
+    }
+`;
+
+export const fieldFragmentShader = `
+    precision mediump float;
+    uniform sampler2D field;
+
+    varying vec2 fragUV;
+
+    void main() {
+        gl_FragColor = vec4(texture2D(field, fragUV).rgb, 1.0);
+    }
+`;

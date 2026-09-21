@@ -53,7 +53,7 @@ function applyParticleCount(requested)
     debug.reset();
     if (debug.enabled) {
         debug.refreshCounts(scene);
-        debug.refreshFields(scene);
+        debug.updateField(scene);
         debugPanel.update(debug.stats);
     }
 
@@ -83,7 +83,7 @@ const debugPanel = attachDebugPanel(document, {
 
         if (value) {
             debug.refreshCounts(scene);
-            debug.refreshFields(scene);
+            debug.updateField(scene);
             debugPanel.update(debug.stats);
         } else {
             // A view with the collector switched off is neither collected nor
@@ -98,7 +98,7 @@ const debugPanel = attachDebugPanel(document, {
         config.debug.showPressure = views.pressure;
         config.debug.showCellTypes = views.cellTypes;
         debug.setViews(views);
-        debug.refreshFields(scene);
+        debug.updateField(scene);
     }
 });
 

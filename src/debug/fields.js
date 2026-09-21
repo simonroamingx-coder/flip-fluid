@@ -7,12 +7,34 @@
 
 import { FLUID_CELL, SOLID_CELL } from '../core/constants.js';
 
+// The colour arrays are uploaded as a texture, one texel per cell, so they have
+// to be written in texture order - row by row, with y varying slowest. The solver
+// stores its cells the other way round (index = x * fNumY + y, x varying slowest),
+// so this mapping lives here rather than being spelled out at each use. Getting it
+// backwards is not subtle: every field comes out transposed.
+function texelOffset(fluid, xi, yi)
+{
+    return 3 * (yi * fluid.fNumX + xi);
+}
+
 // Pressure is signed, so it is mapped diverging around zero: blue where the
 // solver is pulling, red where it is pushing, dark at rest. That is a different
 // question from the density ramp the grid view draws, which is why it is not the
 // same mapping. Each side is scaled to its own largest value, so a field that is
 // mostly one sign still uses the whole colour range instead of washing out.
-export function writePressureColors(fluid, colors)
+// The scale is smoothed rather than recomputed flat, because the whole field
+// gets brighter or darker whenever the peak moves, and a peak that jumps every
+// frame makes the picture flicker. Rising fast so a real spike is visible,
+// falling slowly so the field settles instead of strobing.
+const RISE = 0.25;
+const FALL = 0.01;
+
+export function createPressureRange()
+{
+    return { positive: 0, negative: 0 };
+}
+
+export function writePressureColors(fluid, colors, range)
 {
     let mostPositive = 0;
     let mostNegative = 0;
@@ -27,20 +49,30 @@ export function writePressureColors(fluid, colors)
             mostNegative = -fluid.p[i];
     }
 
-    for (let i = 0; i < fluid.fNumCells; i++) {
-        const offset = 3 * i;
+    range.positive += (mostPositive - range.positive) * (mostPositive > range.positive ? RISE : FALL);
+    range.negative += (mostNegative - range.negative) * (mostNegative > range.negative ? RISE : FALL);
 
-        if (fluid.cellType[i] !== FLUID_CELL) {
-            colors[offset] = 0;
+    for (let yi = 0; yi < fluid.fNumY; yi++) {
+        for (let xi = 0; xi < fluid.fNumX; xi++) {
+            const cell = xi * fluid.fNumY + yi;
+            const offset = texelOffset(fluid, xi, yi);
+
+            if (fluid.cellType[cell] !== FLUID_CELL) {
+                colors[offset] = 0;
+                colors[offset + 1] = 0;
+                colors[offset + 2] = 0;
+                continue;
+            }
+
+            const pressure = fluid.p[cell];
+            colors[offset] = pressure > 0 && range.positive
+                ? Math.min(255, Math.round(255 * pressure / range.positive))
+                : 0;
             colors[offset + 1] = 0;
-            colors[offset + 2] = 0;
-            continue;
+            colors[offset + 2] = pressure < 0 && range.negative
+                ? Math.min(255, Math.round(255 * -pressure / range.negative))
+                : 0;
         }
-
-        const pressure = fluid.p[i];
-        colors[offset] = pressure > 0 && mostPositive ? pressure / mostPositive : 0;
-        colors[offset + 1] = 0;
-        colors[offset + 2] = pressure < 0 && mostNegative ? -pressure / mostNegative : 0;
     }
 }
 
@@ -49,22 +81,24 @@ export function writePressureColors(fluid, colors)
 // collision view: the solid cells are the surfaces particles are pushed off.
 export function writeCellTypes(fluid, colors)
 {
-    for (let i = 0; i < fluid.fNumCells; i++) {
-        const offset = 3 * i;
-        const type = fluid.cellType[i];
+    for (let yi = 0; yi < fluid.fNumY; yi++) {
+        for (let xi = 0; xi < fluid.fNumX; xi++) {
+            const offset = texelOffset(fluid, xi, yi);
+            const type = fluid.cellType[xi * fluid.fNumY + yi];
 
-        if (type === SOLID_CELL) {
-            colors[offset] = 0.62;
-            colors[offset + 1] = 0.62;
-            colors[offset + 2] = 0.62;
-        } else if (type === FLUID_CELL) {
-            colors[offset] = 0.15;
-            colors[offset + 1] = 0.35;
-            colors[offset + 2] = 1.0;
-        } else {
-            colors[offset] = 0.04;
-            colors[offset + 1] = 0.05;
-            colors[offset + 2] = 0.10;
+            if (type === SOLID_CELL) {
+                colors[offset] = 158;
+                colors[offset + 1] = 158;
+                colors[offset + 2] = 158;
+            } else if (type === FLUID_CELL) {
+                colors[offset] = 38;
+                colors[offset + 1] = 89;
+                colors[offset + 2] = 255;
+            } else {
+                colors[offset] = 10;
+                colors[offset + 1] = 13;
+                colors[offset + 2] = 26;
+            }
         }
     }
 }

@@ -10,7 +10,7 @@
 // The panel formats what is here. It does not compute anything.
 
 import { FLUID_CELL } from '../core/constants.js';
-import { writePressureColors, writeCellTypes } from './fields.js';
+import { createPressureRange, writePressureColors, writeCellTypes } from './fields.js';
 
 export function createRuntimeStats()
 {
@@ -68,6 +68,8 @@ export function createDebug()
     let views = { pressure: false, cellTypes: false };
     let pressureColors = null;
     let cellTypeColors = null;
+    const pressureRange = createPressureRange();
+    let fieldUpdates = 0;
 
     function zeroTimings()
     {
@@ -79,6 +81,9 @@ export function createDebug()
     {
         Object.assign(stats, createRuntimeStats());
         zeroTimings();
+        pressureRange.positive = 0;
+        pressureRange.negative = 0;
+        fieldUpdates = 0;
         previousFrame = 0;
         smoothedFrameTime = 0;
     }
@@ -140,28 +145,33 @@ export function createDebug()
         if (pressureColors && pressureColors.length === needed)
             return;
 
-        pressureColors = new Float32Array(needed);
-        cellTypeColors = new Float32Array(needed);
+        pressureColors = new Uint8Array(needed);
+        cellTypeColors = new Uint8Array(needed);
     }
 
-    // Recomputes the colour buffers for whichever views are on. Cells are
-    // classified first, so a view switched on while the simulation is paused
-    // describes the grid the next step would use rather than an empty one.
-    // Called at the panel's refresh rate, not every frame: the colours only
-    // change when the simulation does.
-    function refreshFields(scene)
+    // Recomputes the colour buffer for whichever view is on. This runs every
+    // frame, not at the panel's refresh rate: a field that steps a few times a
+    // second reads as stutter, and the upload that follows is one quad rather
+    // than one sprite per cell. The cost is a single pass over the cells, and
+    // only while a view is switched on.
+    //
+    // Cells are classified first, so a view switched on while the simulation is
+    // paused describes the grid the next step would use rather than an empty one.
+    function updateField(scene)
     {
-        const fluid = scene.fluid;
-        if (!fluid || (!views.pressure && !views.cellTypes))
+        const fluid = scene && scene.fluid;
+        if (!fluid || !enabled || (!views.pressure && !views.cellTypes))
             return;
 
         fluid.classifyCells();
         ensureBuffers(fluid);
 
         if (views.pressure)
-            writePressureColors(fluid, pressureColors);
+            writePressureColors(fluid, pressureColors, pressureRange);
         if (views.cellTypes)
             writeCellTypes(fluid, cellTypeColors);
+
+        fieldUpdates++;
     }
 
     // What the renderer should draw over the simulation, if anything. The buffer
@@ -176,7 +186,7 @@ export function createDebug()
         if (!colors || colors.length !== 3 * scene.fluid.fNumCells)
             return null;
 
-        return { colors, scale: 1.0 };
+        return { colors };
     }
 
     return {
@@ -186,6 +196,13 @@ export function createDebug()
         get views()
         {
             return { ...views };
+        },
+
+        // How many times the field has been recomputed. It is here so a test can
+        // tell "every frame" from "a few times a second".
+        get fieldUpdates()
+        {
+            return fieldUpdates;
         },
 
         setViews(value)
@@ -211,7 +228,7 @@ export function createDebug()
         beginStep,
         recordStep,
         refreshCounts,
-        refreshFields,
+        updateField,
         fieldView
     };
 }

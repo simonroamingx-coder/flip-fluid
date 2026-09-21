@@ -30,13 +30,15 @@ Landed so far:
   out of step and report times for operations that no longer happen in that
   order. With no sink, the cost is one boolean test per stage.
 - **Debug views** over the simulation: pressure, read from `fluid.p` and mapped
-  diverging around zero with each side scaled to its own maximum, and cell types,
-  read from `fluid.cellType` - grey solid, blue fluid, near-black air. That is the
-  grid exactly as the solver sees it, so it doubles as the collision view: the
-  solid cells are the surfaces particles are pushed off. Both views only read the
-  solver, are computed at the panel's refresh rate rather than every frame, and
-  take the place of the density grid while switched on, since all three are
-  cell-centred drawings of the same grid.
+  diverging around zero with each side scaled to its own smoothed maximum, and
+  cell types, read from `fluid.cellType` - grey solid, blue fluid, near-black
+  air. That is the grid exactly as the solver sees it, so it doubles as the
+  collision view: the solid cells are the surfaces particles are pushed off.
+  Both views only read the solver, take the place of the density grid while
+  switched on, and are drawn as one textured quad over the grid and refreshed
+  every frame - 56 updates a second at 58 fps, measured, against 60 fps with no
+  view. Recomputing them at the panel's rate was the first attempt, and a field
+  that steps seven times a second reads as stutter however cheap it is.
 - `src/core/config.js` holds user settings, apart from the live scene state.
 - The default path is untouched: with no configured count the scenario uses the
   original resolution, and the behaviour baseline still matches v1.0.0 field for

@@ -18,7 +18,8 @@ import { VERSION } from '../src/version.js';
 const root = new URL('..', import.meta.url);
 const rootPath = fileURLToPath(root);
 
-const IMPORT_RE = /^[ \t]*import\s*\{([^}\n]*)\}\s*from\s*['"](\.[^'"\n]+)['"]\s*;?[ \t]*$/gm;
+// Named imports, single line or spread over several.
+const IMPORT_RE = /^[ \t]*import\s*\{([\s\S]*?)\}\s*from\s*['"](\.[^'"\n]+)['"]\s*;?[ \t]*$/gm;
 const EXPORT_RE = /^[ \t]*export\s+(function|const|let|var|class)\s+([A-Za-z0-9_$]+)/gm;
 const ANY_IMPORT_RE = /^[ \t]*import\s/m;
 const ANY_EXPORT_RE = /^[ \t]*export\s/m;
